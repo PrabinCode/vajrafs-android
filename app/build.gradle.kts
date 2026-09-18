@@ -6,15 +6,16 @@ plugins {
 }
 
 android {
-    namespace = "com.imanage.fileexplorer"
+    namespace = "com.prabincode.imanage"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.imanage.fileexplorer"
+        applicationId = "com.prabincode.imanage"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.6.0"
+        versionCode = 8
+        versionName = "1.7.0"
+        setProperty("archivesBaseName", "prabincode-imanage-v$versionName")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

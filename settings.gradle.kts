@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "IManage"
+rootProject.name = "iManageFiles"
 include(":app")
