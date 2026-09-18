@@ -33,30 +33,29 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+    - name: Build APKs & App Bundle
+      run: ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
 
-    - name: Copy & Rename APK
+    - name: Collect Release Artifacts
       run: |
         mkdir -p release-artifacts
-        TAG_NAME="${{ github.ref_name }}"
-        if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "master" ] || [ "$TAG_NAME" = "main" ]; then
-          TAG_NAME="v1.4.0"
-        fi
-        cp app/build/outputs/apk/debug/app-debug.apk "release-artifacts/IManage-${TAG_NAME}.apk"
+        cp app/build/outputs/apk/debug/*.apk release-artifacts/ 2>/dev/null || true
+        cp app/build/outputs/apk/release/*.apk release-artifacts/ 2>/dev/null || true
+        cp app/build/outputs/bundle/release/*.aab release-artifacts/ 2>/dev/null || true
+        ls -la release-artifacts/
 
-    - name: Upload APK Artifact (Actions)
+    - name: Upload APK & Bundle Artifacts (Actions)
       uses: actions/upload-artifact@v4
       with:
-        name: IManage-APK
-        path: release-artifacts/*.apk
+        name: iManage-Files-Artifacts
+        path: release-artifacts/*
 
     - name: Create GitHub Release (On Tag or Manual)
       if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
       with:
-        files: release-artifacts/*.apk
-        name: "I Manage ${{ github.ref_name }}"
+        files: release-artifacts/*
+        name: "iManage Files ${{ github.ref_name }}"
         draft: false
         prerelease: false
         generate_release_notes: true
