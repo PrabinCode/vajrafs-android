@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -12,13 +12,17 @@ import android.media.MediaScannerConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
+import android.os.storage.StorageManager
 import com.prabincode.imanage.data.model.FileItem
 import java.io.*
 import java.net.*
 import java.util.Collections
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,12 +43,23 @@ object LocalWifiServer {
 
     private const val DEFAULT_PORT = 8080
     private var serverSocket: ServerSocket? = null
-    private val threadPool = Executors.newCachedThreadPool()
+    private val threadPool = ThreadPoolExecutor(
+        4,
+        32,
+        60L,
+        TimeUnit.SECONDS,
+        LinkedBlockingQueue(128),
+        ThreadPoolExecutor.DiscardOldestPolicy()
+    )
     private var isServerActive = false
     private var currentPin = ""
     private var appContext: Context? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // Rate limiting & lockout state for PIN authentication
+    private var failedPinAttempts = 0
+    private var lockoutUntilMs = 0L
 
     private val _serverState = MutableStateFlow(ServerState())
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
@@ -208,15 +223,25 @@ object LocalWifiServer {
                 }
 
                 val cookieHeader = headers["cookie"] ?: ""
-                val isAuthed = cookieHeader.contains("imanage_auth=$currentPin") || queryParams["pin"] == currentPin
+                val authCookie = extractCookie(cookieHeader, "imanage_auth")
+                val isAuthed = currentPin.isNotEmpty() && (authCookie == currentPin || queryParams["pin"] == currentPin)
 
                 if (path == "/auth") {
+                    if (isPinLockedOut()) {
+                        val remainingSec = ((lockoutUntilMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(1L)
+                        sendHtml(output, getLoginPage("Too many failed attempts! Please wait $remainingSec seconds."))
+                        return
+                    }
+
                     val enteredPin = queryParams["pin"] ?: ""
-                    if (enteredPin == currentPin) {
-                        val response = "HTTP/1.1 302 Found\r\nSet-Cookie: imanage_auth=$currentPin; Path=/; HttpOnly\r\nLocation: /\r\n\r\n"
+                    if (currentPin.isNotEmpty() && enteredPin == currentPin) {
+                        onPinSucceeded()
+                        val response = "HTTP/1.1 302 Found\r\nSet-Cookie: imanage_auth=$currentPin; Path=/; HttpOnly; SameSite=Strict\r\nLocation: /\r\n\r\n"
                         output.write(response.toByteArray())
                         output.flush()
                     } else {
+                        onPinFailed()
+                        try { Thread.sleep(1000) } catch (_: Exception) {}
                         sendHtml(output, getLoginPage("Invalid PIN! Try again."))
                     }
                     return
@@ -227,33 +252,46 @@ object LocalWifiServer {
                     return
                 }
 
-                // 1. Download file
+                // 1. Download file (with containment validation)
                 if (path == "/download") {
                     val filePath = queryParams["path"]
-                    if (filePath != null) {
+                    if (filePath != null && isAllowedPath(filePath, appContext)) {
                         val file = File(filePath)
                         if (file.exists() && file.isFile && file.canRead()) {
                             sendFileDownload(output, file)
                             return
                         }
                     }
+                    sendForbidden(output)
+                    return
                 }
 
-                // 2. High-speed Direct Binary Upload from PC to Phone
+                // 2. High-speed Direct Binary Upload from PC to Phone (strictly sanitized)
                 if (path == "/upload" && method == "POST") {
-                    val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    val rawTargetDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
                     val rawFilename = queryParams["filename"] ?: "Uploaded_${System.currentTimeMillis()}"
-                    // rawFilename is already decoded by parseQuery
-                    val filename = rawFilename
-                    val targetDir = File(targetDirPath)
+                    // Sanitize filename: strip any path traversal sequences
+                    val sanitizedFilename = File(rawFilename).name.ifBlank { "Uploaded_${System.currentTimeMillis()}" }
+
+                    if (!isAllowedPath(rawTargetDir, appContext)) {
+                        sendForbidden(output)
+                        return
+                    }
+
+                    val targetDir = File(rawTargetDir)
                     if (!targetDir.exists()) {
                         targetDir.mkdirs()
                     }
-                    val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
 
+                    val outputFile = File(targetDir, sanitizedFilename)
+                    if (!isAllowedPath(outputFile.canonicalPath, appContext)) {
+                        sendForbidden(output)
+                        return
+                    }
+
+                    val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
                     if (contentLength > 0L) {
-                        val outputFile = File(targetDir, filename)
-                        val tempFile = File(targetDir, "${filename}.part_${System.currentTimeMillis()}")
+                        val tempFile = File(targetDir, "${sanitizedFilename}.part_${System.currentTimeMillis()}")
                         var success = false
 
                         try {
@@ -284,7 +322,8 @@ object LocalWifiServer {
                         }
                     }
 
-                    val json = "{\"status\":\"ok\",\"file\":\"${filename.replace("\"", "\\\"")}\"}"
+                    val jsonClean = sanitizedFilename.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+                    val json = "{\"status\":\"ok\",\"file\":\"$jsonClean\"}"
                     val jsonBytes = json.toByteArray(Charsets.UTF_8)
                     val header = "HTTP/1.1 200 OK\r\n" +
                             "Content-Type: application/json\r\n" +
@@ -296,27 +335,39 @@ object LocalWifiServer {
                     return
                 }
 
-                // 3. Create folder from PC
+                // 3. Create folder from PC (strictly sanitized)
                 if (path == "/mkdir") {
-                    val targetDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
-                    val folderName = queryParams["name"] ?: "New Folder"
-                    val newFolder = File(targetDirPath, folderName)
-                    newFolder.mkdirs()
+                    val rawTargetDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
+                    val rawName = queryParams["name"] ?: "New Folder"
+                    val cleanFolderName = File(rawName).name.ifBlank { "New Folder" }
 
-                    val encodedDir = URLEncoder.encode(targetDirPath, "UTF-8")
+                    if (!isAllowedPath(rawTargetDir, appContext)) {
+                        sendForbidden(output)
+                        return
+                    }
+
+                    val newFolder = File(rawTargetDir, cleanFolderName)
+                    if (isAllowedPath(newFolder.canonicalPath, appContext)) {
+                        newFolder.mkdirs()
+                    }
+
+                    val encodedDir = URLEncoder.encode(rawTargetDir, "UTF-8")
                     val response = "HTTP/1.1 302 Found\r\nLocation: /?dir=$encodedDir\r\n\r\n"
                     output.write(response.toByteArray())
                     output.flush()
                     return
                 }
 
-                // 4. Delete file/folder from PC
+                // 4. Delete file/folder from PC (strictly contained)
                 if (path == "/delete") {
                     val filePath = queryParams["path"]
                     val returnDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
-                    if (filePath != null) {
-                        val file = File(filePath)
-                        if (file.exists()) {
+                    val primaryRoot = Environment.getExternalStorageDirectory().canonicalPath
+
+                    if (filePath != null && isAllowedPath(filePath, appContext)) {
+                        val file = File(filePath).canonicalFile
+                        // Never allow deleting the primary storage root itself
+                        if (file.canonicalPath != primaryRoot && file.exists()) {
                             file.deleteRecursively()
                             appContext?.let { MediaScannerConnection.scanFile(it, arrayOf(file.absolutePath), null, null) }
                         }
@@ -329,10 +380,14 @@ object LocalWifiServer {
                     return
                 }
 
-                // 5. Serve Web Explorer UI
+                // 5. Serve Web Explorer UI (contained)
                 val currentDirPath = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
-                val currentDir = File(currentDirPath)
-                val targetDir = if (currentDir.exists() && currentDir.isDirectory) currentDir else Environment.getExternalStorageDirectory()
+                val targetDir = if (isAllowedPath(currentDirPath, appContext)) {
+                    val dir = File(currentDirPath)
+                    if (dir.exists() && dir.isDirectory) dir else Environment.getExternalStorageDirectory()
+                } else {
+                    Environment.getExternalStorageDirectory()
+                }
 
                 sendHtml(output, getExplorerPage(targetDir))
             }
@@ -445,16 +500,17 @@ object LocalWifiServer {
 
         for (f in sorted) {
             val name = f.name
+            val escapedName = escapeHtml(name)
             val encodedPath = URLEncoder.encode(f.absolutePath, "UTF-8")
             if (f.isDirectory) {
                 val count = f.list()?.size ?: 0
                 rows.append("""
                     <tr>
-                        <td>📁 <a href="/?dir=$encodedPath" class="folder-link">$name</a></td>
+                        <td>📁 <a href="/?dir=$encodedPath" class="folder-link">$escapedName</a></td>
                         <td>$count items</td>
                         <td>Folder</td>
                         <td>
-                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete folder $name?')" class="del-btn">🗑️ Delete</a>
+                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete folder?')" class="del-btn">🗑️ Delete</a>
                         </td>
                     </tr>
                 """.trimIndent())
@@ -462,12 +518,12 @@ object LocalWifiServer {
                 val size = FileItem.formatBytes(f.length())
                 rows.append("""
                     <tr>
-                        <td>📄 $name</td>
+                        <td>📄 $escapedName</td>
                         <td>$size</td>
                         <td>${f.extension.uppercase()}</td>
                         <td>
                             <a href="/download?path=$encodedPath" class="download-btn">⬇️ Download</a>
-                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete file $name?')" class="del-btn">🗑️</a>
+                            <a href="/delete?path=$encodedPath&dir=$encodedCurrent" onclick="return confirm('Delete file?')" class="del-btn">🗑️</a>
                         </td>
                     </tr>
                 """.trimIndent())
@@ -806,5 +862,108 @@ object LocalWifiServer {
         val primary = wifiIps.firstOrNull() ?: hotspotIps.firstOrNull() ?: otherLanIps.firstOrNull() ?: "192.168.1.x"
 
         return Pair(primary, allUnique)
+    }
+
+    private fun sendForbidden(output: OutputStream) {
+        val forbidden = "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: 17\r\nConnection: close\r\n\r\nAccess Forbidden."
+        output.write(forbidden.toByteArray())
+        output.flush()
+    }
+
+    fun escapeHtml(text: String): String {
+        val out = StringBuilder(text.length)
+        for (i in 0 until text.length) {
+            when (val c = text[i]) {
+                '&' -> out.append("&amp;")
+                '<' -> out.append("&lt;")
+                '>' -> out.append("&gt;")
+                '"' -> out.append("&quot;")
+                '\'' -> out.append("&#39;")
+                else -> out.append(c)
+            }
+        }
+        return out.toString()
+    }
+
+    fun isAllowedPath(path: String?, context: Context?): Boolean {
+        if (path.isNullOrBlank() || context == null) return false
+        return try {
+            val targetFile = File(path).canonicalFile
+            val targetCanonical = targetFile.canonicalPath
+
+            // 1. Strictly forbid app private internal data directories
+            val privateDataDir = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    context.dataDir.canonicalFile.canonicalPath
+                } else {
+                    context.filesDir.parentFile?.canonicalFile?.canonicalPath ?: ""
+                }
+            } catch (_: Exception) {
+                ""
+            }
+            if (privateDataDir.isNotEmpty() && (targetCanonical == privateDataDir || targetCanonical.startsWith(privateDataDir + File.separator))) {
+                return false
+            }
+
+            // 2. Allow primary external storage
+            val primaryStorage = Environment.getExternalStorageDirectory().canonicalFile.canonicalPath
+            if (targetCanonical == primaryStorage || targetCanonical.startsWith(primaryStorage + File.separator)) {
+                return true
+            }
+
+            // 3. Allow removable storage volumes (SD cards, USB OTG)
+            val storageManager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+            if (storageManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val matchedVolume = storageManager.storageVolumes.any { vol ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        vol.directory?.let { dir ->
+                            val dirCanonical = dir.canonicalPath
+                            targetCanonical == dirCanonical || targetCanonical.startsWith(dirCanonical + File.separator)
+                        } ?: false
+                    } else {
+                        false
+                    }
+                }
+                if (matchedVolume) return true
+            }
+
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun extractCookie(cookieHeader: String, name: String): String? {
+        if (cookieHeader.isEmpty()) return null
+        for (piece in cookieHeader.split(";")) {
+            val trimmed = piece.trim()
+            val eq = trimmed.indexOf('=')
+            if (eq > 0) {
+                val cookieName = trimmed.substring(0, eq).trim()
+                if (cookieName.equals(name, ignoreCase = true)) {
+                    return trimmed.substring(eq + 1).trim()
+                }
+            }
+        }
+        return null
+    }
+
+    @Synchronized
+    private fun isPinLockedOut(): Boolean {
+        return System.currentTimeMillis() < lockoutUntilMs
+    }
+
+    @Synchronized
+    private fun onPinFailed() {
+        failedPinAttempts++
+        if (failedPinAttempts >= 5) {
+            lockoutUntilMs = System.currentTimeMillis() + 15_000L
+        }
+    }
+
+    @Synchronized
+    private fun onPinSucceeded() {
+        failedPinAttempts = 0
+        lockoutUntilMs = 0L
     }
 }

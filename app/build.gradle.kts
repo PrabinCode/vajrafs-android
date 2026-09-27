@@ -103,5 +103,9 @@ dependencies {
     // EXIF Interface
     implementation(libs.androidx.exifinterface)
     
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.kotlinx.coroutines.core)
+
     debugImplementation(libs.androidx.ui.tooling)
 }

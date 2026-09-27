@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -55,6 +55,8 @@ fun TextEditorScreen(
     var isSaving by remember { mutableStateOf(false) }
     var hasUnsavedChanges by remember { mutableStateOf(false) }
 
+    var isTruncated by remember { mutableStateOf(false) }
+
     // Editor settings
     var isEditMode by remember { mutableStateOf(false) } // Default to read-only for safe viewing
     var isWordWrap by remember { mutableStateOf(true) }
@@ -86,9 +88,21 @@ fun TextEditorScreen(
         withContext(Dispatchers.IO) {
             try {
                 if (file.exists()) {
-                    val raw = file.readText()
-                    withContext(Dispatchers.Main) {
-                        textFieldValue = TextFieldValue(raw)
+                    if (file.length() > 3 * 1024 * 1024L) {
+                        isTruncated = true
+                        val preview = file.inputStream().use { input ->
+                            val bytes = ByteArray(250 * 1024)
+                            val read = input.read(bytes)
+                            String(bytes, 0, read.coerceAtLeast(0), Charsets.UTF_8)
+                        }
+                        withContext(Dispatchers.Main) {
+                            textFieldValue = TextFieldValue("$preview\n\n--- [PREVIEW TRUNCATED: File exceeds 3 MB limit for text editing. Open with external viewer for full contents.] ---")
+                        }
+                    } else {
+                        val raw = file.readText()
+                        withContext(Dispatchers.Main) {
+                            textFieldValue = TextFieldValue(raw)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -148,7 +162,13 @@ fun TextEditorScreen(
                         }
 
                         // Edit Mode Switch
-                        IconButton(onClick = { isEditMode = !isEditMode }) {
+                        IconButton(onClick = {
+                            if (!isTruncated) {
+                                isEditMode = !isEditMode
+                            } else {
+                                Toast.makeText(context, "Editing disabled for files > 3 MB", Toast.LENGTH_SHORT).show()
+                            }
+                        }) {
                             Icon(
                                 imageVector = if (isEditMode) Icons.Default.Edit else Icons.Default.Visibility,
                                 contentDescription = if (isEditMode) "Edit Mode (Editable)" else "Read Mode (Protected)",

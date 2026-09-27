@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -46,26 +46,29 @@ object AudioPlaybackManager {
                         .build()
                 )
                 setDataSource(fileItem.path)
-                prepare()
-                start()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    _playbackState.value = AudioPlaybackState(
+                        currentTrack = fileItem,
+                        isPlaying = true,
+                        currentPositionMs = 0,
+                        durationMs = mp.duration,
+                        isVisible = true
+                    )
+                    startProgressTracker()
+                }
+                setOnCompletionListener {
+                    _playbackState.value = _playbackState.value.copy(isPlaying = false, currentPositionMs = 0)
+                    stopProgressTracker()
+                }
+                setOnErrorListener { _, _, _ ->
+                    _playbackState.value = AudioPlaybackState(isVisible = false)
+                    true
+                }
+                prepareAsync()
             }
 
             mediaPlayer = player
-
-            _playbackState.value = AudioPlaybackState(
-                currentTrack = fileItem,
-                isPlaying = true,
-                currentPositionMs = 0,
-                durationMs = player.duration,
-                isVisible = true
-            )
-
-            startProgressTracker()
-
-            player.setOnCompletionListener {
-                _playbackState.value = _playbackState.value.copy(isPlaying = false, currentPositionMs = 0)
-                stopProgressTracker()
-            }
         } catch (e: Exception) {
             _playbackState.value = AudioPlaybackState(isVisible = false)
         }

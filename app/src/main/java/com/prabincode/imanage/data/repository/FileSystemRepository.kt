@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -305,6 +305,12 @@ class FileSystemRepository(private val context: Context) {
             }
 
             if (source.isDirectory) {
+                val canonicalSource = source.canonicalPath
+                val canonicalDest = destination.canonicalPath
+                if (canonicalDest == canonicalSource || canonicalDest.startsWith(canonicalSource + File.separator)) {
+                    return@withContext Result.failure(IllegalArgumentException("Cannot copy a directory into itself or its subdirectory"))
+                }
+
                 destination.mkdirs()
                 source.listFiles()?.forEach { child ->
                     val destChild = File(destination, child.name)
@@ -429,12 +435,19 @@ class FileSystemRepository(private val context: Context) {
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             destDir.mkdirs()
+            val canonicalDestDir = destDir.canonicalPath
             var extractedCount = 0
 
             ZipInputStream(FileInputStream(zipFile)).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
                     val newFile = File(destDir, entry.name)
+                    val canonicalTarget = newFile.canonicalPath
+                    // Zip Slip security guard: ensure target file cannot escape destDir
+                    if (!canonicalTarget.startsWith(canonicalDestDir + File.separator) && canonicalTarget != canonicalDestDir) {
+                        throw SecurityException("Zip entry is outside target directory: ${entry.name}")
+                    }
+
                     if (entry.isDirectory) {
                         newFile.mkdirs()
                     } else {

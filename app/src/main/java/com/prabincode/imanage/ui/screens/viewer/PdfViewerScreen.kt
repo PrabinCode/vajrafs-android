@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -135,8 +135,15 @@ fun PdfViewerScreen(
             try {
                 val page = renderer.openPage(index)
                 val density = 2 // 2x density for crisp font rendering
-                val width = page.width * density
-                val height = page.height * density
+                val maxDim = 2048
+                val rawW = page.width * density
+                val rawH = page.height * density
+                val scaleFactor = if (rawW > maxDim || rawH > maxDim) {
+                    val maxRaw = maxOf(rawW, rawH)
+                    maxDim.toFloat() / maxRaw
+                } else 1.0f
+                val width = (rawW * scaleFactor).toInt().coerceAtLeast(1)
+                val height = (rawH * scaleFactor).toInt().coerceAtLeast(1)
                 val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 bmp.eraseColor(android.graphics.Color.WHITE)
                 page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)

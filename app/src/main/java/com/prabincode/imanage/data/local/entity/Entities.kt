@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -8,6 +8,7 @@
 package com.prabincode.imanage.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "bookmarks")
@@ -19,7 +20,12 @@ data class BookmarkEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "trash_items")
+@Entity(
+    tableName = "trash_items",
+    indices = [
+        Index(value = ["trashedTime"])
+    ]
+)
 data class TrashEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -31,7 +37,13 @@ data class TrashEntity(
     val isDirectory: Boolean = false
 )
 
-@Entity(tableName = "vault_items")
+@Entity(
+    tableName = "vault_items",
+    indices = [
+        Index(value = ["originalPath"]),
+        Index(value = ["encryptedAt"])
+    ]
+)
 data class VaultEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -44,14 +56,24 @@ data class VaultEntity(
     val isDirectory: Boolean = false
 )
 
-@Entity(tableName = "search_history")
+@Entity(
+    tableName = "search_history",
+    indices = [
+        Index(value = ["timestamp"])
+    ]
+)
 data class SearchHistoryEntity(
     @PrimaryKey
     val query: String,
     val timestamp: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "file_tags")
+@Entity(
+    tableName = "file_tags",
+    indices = [
+        Index(value = ["taggedAt"])
+    ]
+)
 data class FileTagEntity(
     @PrimaryKey
     val path: String,
