@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -13,12 +13,18 @@ sealed class Screen(val route: String) {
     object Onboarding : Screen("onboarding")
     object Home : Screen("home")
     
-    object Explorer : Screen("explorer?path={path}&title={title}&category={category}") {
-        fun createRoute(path: String? = null, title: String? = null, category: String? = null): String {
+    object Explorer : Screen("explorer?path={path}&title={title}&category={category}&highlight={highlight}") {
+        fun createRoute(
+            path: String? = null,
+            title: String? = null,
+            category: String? = null,
+            highlight: String? = null
+        ): String {
             val encodedPath = path?.let { Uri.encode(it) } ?: ""
             val encodedTitle = title?.let { Uri.encode(it) } ?: ""
             val encodedCategory = category?.let { Uri.encode(it) } ?: ""
-            return "explorer?path=$encodedPath&title=$encodedTitle&category=$encodedCategory"
+            val encodedHighlight = highlight?.let { Uri.encode(it) } ?: ""
+            return "explorer?path=$encodedPath&title=$encodedTitle&category=$encodedCategory&highlight=$encodedHighlight"
         }
     }
 

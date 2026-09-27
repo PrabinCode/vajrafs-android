@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -24,6 +24,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -154,6 +155,7 @@ fun VideoPlayerScreen(
     var isMuted by remember { mutableStateOf(false) }
     var backgroundAudioEnabled by remember { mutableStateOf(false) }
     var isFastForwarding by remember { mutableStateOf(false) }
+    var showFastForwardHud by remember { mutableStateOf(false) }
     var isCapturingFrame by remember { mutableStateOf(false) }
 
     // Pinch-to-zoom & Pan state
@@ -381,6 +383,17 @@ fun VideoPlayerScreen(
         }
     }
 
+    // Auto-hide 2.0x speed HUD badge after 1.2s so it does not obstruct the video while holding
+    LaunchedEffect(isFastForwarding) {
+        if (isFastForwarding) {
+            showFastForwardHud = true
+            delay(1200)
+            showFastForwardHud = false
+        } else {
+            showFastForwardHud = false
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -493,12 +506,15 @@ fun VideoPlayerScreen(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         exoPlayer.setPlaybackSpeed(2.0f)
                                     }
-                                    tryAwaitRelease()
-                                    boostJob.cancel()
-                                    if (speedActivated) {
-                                        isFastForwarding = false
-                                        exoPlayer.setPlaybackSpeed(playbackSpeed)
-                                        justFastForwarded = true
+                                    try {
+                                        tryAwaitRelease()
+                                    } finally {
+                                        boostJob.cancel()
+                                        if (speedActivated) {
+                                            isFastForwarding = false
+                                            exoPlayer.setPlaybackSpeed(playbackSpeed)
+                                            justFastForwarded = true
+                                        }
                                     }
                                 },
                                 onTap = {
@@ -587,43 +603,37 @@ fun VideoPlayerScreen(
 
         // 2.0X SPEED HOLD HUD
         AnimatedVisibility(
-            visible = isFastForwarding,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut(),
+            visible = showFastForwardHud,
+            enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.9f),
+            exit = fadeOut(animationSpec = tween(250)) + scaleOut(targetScale = 0.9f),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = 20.dp)
+                .padding(top = 16.dp)
         ) {
             Surface(
-                color = Color.Black.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.5.dp, Color(0xFFFFD54F)),
-                shadowElevation = 8.dp
+                color = Color.Black.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                shadowElevation = 4.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Bolt,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(20.dp)
-                    )
                     Text(
                         text = "2.0X SPEED",
                         color = Color(0xFFFFD54F),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
                     )
                     Icon(
                         imageVector = Icons.Default.FastForward,
                         contentDescription = null,
                         tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

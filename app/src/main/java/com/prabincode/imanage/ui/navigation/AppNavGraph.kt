@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -270,12 +270,17 @@ fun AppNavGraph(
                     navArgument("category") {
                         type = NavType.StringType
                         defaultValue = ""
+                    },
+                    navArgument("highlight") {
+                        type = NavType.StringType
+                        defaultValue = ""
                     }
                 )
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: ""
                 val title = backStackEntry.arguments?.getString("title") ?: "Storage"
                 val category = backStackEntry.arguments?.getString("category") ?: ""
+                val highlight = backStackEntry.arguments?.getString("highlight") ?: ""
                 val explorerVm: ExplorerViewModel = viewModel(
                     factory = ViewModelFactory {
                         ExplorerViewModel(
@@ -289,6 +294,7 @@ fun AppNavGraph(
                     initialPath = path,
                     title = title,
                     categoryName = category.ifEmpty { null },
+                    highlightPath = highlight.ifEmpty { null },
                     viewModel = explorerVm,
                     onNavigateBack = { navController.popBackStack() },
                     onOpenFile = { openFile(it) },
@@ -299,7 +305,16 @@ fun AppNavGraph(
                     onNavigateToAnalyzer = { navController.navigate(Screen.Analyzer.route) },
                     onNavigateToTrash = { navController.navigate(Screen.Trash.route) },
                     onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateToFolder = { folderPath, folderTitle, highlightFile ->
+                        navController.navigate(
+                            Screen.Explorer.createRoute(
+                                path = folderPath,
+                                title = folderTitle,
+                                highlight = highlightFile
+                            )
+                        )
+                    }
                 )
             }
 
@@ -349,7 +364,16 @@ fun AppNavGraph(
                 SearchScreen(
                     viewModel = searchVm,
                     onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) }
+                    onOpenFile = { openFile(it) },
+                    onNavigateToFolder = { folderPath, folderTitle, highlightFile ->
+                        navController.navigate(
+                            Screen.Explorer.createRoute(
+                                path = folderPath,
+                                title = folderTitle,
+                                highlight = highlightFile
+                            )
+                        )
+                    }
                 )
             }
 

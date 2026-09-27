@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -46,6 +46,7 @@ fun FileListItem(
     onShareClick: () -> Unit,
     onOpenWithClick: () -> Unit = {},
     onTagClick: () -> Unit = {},
+    onOpenFileLocation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -154,6 +155,12 @@ fun FileListItem(
                             text = { Text("Assign Color Tag") },
                             onClick = { menuExpanded = false; onTagClick() }
                         )
+                        onOpenFileLocation?.let { openLocation ->
+                            DropdownMenuItem(
+                                text = { Text("Open file location") },
+                                onClick = { menuExpanded = false; openLocation() }
+                            )
+                        }
                         if (!item.isDirectory) {
                             DropdownMenuItem(
                                 text = { Text("Open with...") },

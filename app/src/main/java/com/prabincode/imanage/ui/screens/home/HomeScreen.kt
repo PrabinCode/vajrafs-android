@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -348,6 +348,12 @@ fun HomeScreen(
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Share ${fileItem.name}"))
                             } catch (e: Exception) { }
+                        },
+                        onOpenFileLocation = {
+                            val parent = fileItem.file.parentFile
+                            if (parent != null && parent.exists()) {
+                                onNavigateToExplorer(parent.absolutePath, parent.name.ifEmpty { "Storage" })
+                            }
                         }
                     )
                 }

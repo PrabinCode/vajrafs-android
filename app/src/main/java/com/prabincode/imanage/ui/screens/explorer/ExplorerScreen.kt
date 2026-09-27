@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.prabincode.imanage.data.model.*
@@ -45,6 +47,7 @@ fun ExplorerScreen(
     initialPath: String,
     title: String,
     categoryName: String? = null,
+    highlightPath: String? = null,
     viewModel: ExplorerViewModel,
     onNavigateBack: () -> Unit,
     onOpenFile: (String) -> Unit,
@@ -53,7 +56,8 @@ fun ExplorerScreen(
     onNavigateToAnalyzer: () -> Unit = {},
     onNavigateToTrash: () -> Unit = {},
     onNavigateToWifiShare: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToFolder: ((String, String, String?) -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -72,6 +76,19 @@ fun ExplorerScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isInitialized by rememberSaveable(initialPath, categoryName) { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    var highlightedItemPath by rememberSaveable(highlightPath) { mutableStateOf(highlightPath) }
+
+    LaunchedEffect(state.files, highlightPath) {
+        if (!highlightPath.isNullOrEmpty() && state.files.isNotEmpty()) {
+            val index = state.files.indexOfFirst { it.path == highlightPath }
+            if (index >= 0) {
+                listState.animateScrollToItem(index)
+                delay(2500)
+                highlightedItemPath = null
+            }
+        }
+    }
 
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let {
@@ -139,20 +156,13 @@ fun ExplorerScreen(
             topBar = {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(
-                                text = if (state.isSelectionMode) "${state.selectedFiles.size} selected" else state.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (!state.isCategoryMode && state.currentPath.isNotEmpty()) {
-                                Text(
-                                    text = state.currentPath,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        Text(
+                            text = if (state.isSelectionMode) "${state.selectedFiles.size} selected" else state.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     },
                     navigationIcon = {
                         IconButton(
@@ -386,11 +396,17 @@ fun ExplorerScreen(
                         }
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                         items(state.files, key = { it.path }) { item ->
-                            val isSelected = state.selectedFiles.contains(item.path)
+                            val isSelected = state.selectedFiles.contains(item.path) || (item.path == highlightedItemPath)
                             val isArchive = item.extension.equals("zip", ignoreCase = true) || item.extension.equals("tgz", ignoreCase = true) || item.name.endsWith(".tar.gz", ignoreCase = true)
                             
+                            val parentFolder = item.file.parentFile
+                            val canOpenLocation = parentFolder != null && parentFolder.exists() && (state.isCategoryMode || item.file.parent != state.currentPath)
+
                             FileListItem(
                                 item = item,
                                 isSelectionMode = state.isSelectionMode,
@@ -412,6 +428,17 @@ fun ExplorerScreen(
                                 },
                                 onRenameClick = { itemToRename = item },
                                 onTagClick = { itemForTag = item },
+                                onOpenFileLocation = if (canOpenLocation) {
+                                    {
+                                        val pPath = parentFolder!!.absolutePath
+                                        val pTitle = parentFolder.name.ifEmpty { "Storage" }
+                                        if (onNavigateToFolder != null) {
+                                            onNavigateToFolder(pPath, pTitle, item.path)
+                                        } else {
+                                            viewModel.navigateTo(pPath, pTitle)
+                                        }
+                                    }
+                                } else null,
                                 onDeleteClick = {
                                     itemsToDelete = listOf(item)
                                     showDeleteConfirmDialog = true

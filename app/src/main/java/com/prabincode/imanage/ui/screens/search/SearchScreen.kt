@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Prabin Chandra Shrestha (PrabinCode)
  * Project: iManage Files
  * GitHub: https://github.com/PrabinCode/imanage-android
@@ -29,7 +29,8 @@ import com.prabincode.imanage.ui.components.*
 fun SearchScreen(
     viewModel: SearchViewModel,
     onNavigateBack: () -> Unit,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onNavigateToFolder: ((String, String, String?) -> Unit)? = null
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -124,6 +125,12 @@ fun SearchScreen(
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share ${item.name}"))
                                 } catch (e: Exception) { }
+                            },
+                            onOpenFileLocation = {
+                                val parent = item.file.parentFile
+                                if (parent != null && parent.exists()) {
+                                    onNavigateToFolder?.invoke(parent.absolutePath, parent.name.ifEmpty { "Storage" }, item.path)
+                                }
                             }
                         )
                     }
