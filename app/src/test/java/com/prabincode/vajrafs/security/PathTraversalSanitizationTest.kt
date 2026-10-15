@@ -10,7 +10,6 @@ package com.prabincode.vajrafs.security
 import com.prabincode.vajrafs.data.server.LocalWifiServer
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.File
 
 class PathTraversalSanitizationTest {
 
@@ -28,15 +27,34 @@ class PathTraversalSanitizationTest {
         assertEquals(input, LocalWifiServer.escapeHtml(input))
     }
 
+    // Uses LocalWifiServer.sanitizeFileName, not File(name).name: the latter only splits on the
+    // host OS separator, so backslash paths behave differently on Windows and Linux/Android.
     @Test
-    fun testFilenameSanitization_stripsDirectoryTraversal() {
-        val malicious1 = "../../../../data/data/com.prabincode.vajrafs/databases/db"
-        val clean1 = File(malicious1).name
-        assertEquals("db", clean1)
+    fun testFilenameSanitization_stripsForwardSlashTraversal() {
+        val clean = LocalWifiServer.sanitizeFileName("../../../../data/data/com.prabincode.vajrafs/databases/db", "fallback")
+        assertEquals("db", clean)
+    }
 
-        val malicious2 = "..\\..\\windows\\system32\\calc.exe"
-        val clean2 = File(malicious2).name
-        assertFalse(clean2.contains(".."))
+    @Test
+    fun testFilenameSanitization_stripsBackslashTraversal() {
+        val clean = LocalWifiServer.sanitizeFileName("..\\..\\windows\\system32\\calc.exe", "fallback")
+        assertEquals("calc.exe", clean)
+        assertFalse(clean.contains(".."))
+    }
+
+    @Test
+    fun testFilenameSanitization_rejectsDotSegmentsAndBlank() {
+        assertEquals("fallback", LocalWifiServer.sanitizeFileName("..", "fallback"))
+        assertEquals("fallback", LocalWifiServer.sanitizeFileName(".", "fallback"))
+        assertEquals("fallback", LocalWifiServer.sanitizeFileName("photos/..", "fallback"))
+        assertEquals("fallback", LocalWifiServer.sanitizeFileName("   ", "fallback"))
+        assertEquals("fallback", LocalWifiServer.sanitizeFileName(null, "fallback"))
+    }
+
+    @Test
+    fun testFilenameSanitization_keepsNormalNamesAndDropsControlChars() {
+        assertEquals("Report 2026.pdf", LocalWifiServer.sanitizeFileName("Report 2026.pdf", "fallback"))
+        assertEquals("evil.txt", LocalWifiServer.sanitizeFileName("ev\u0000il.txt\n", "fallback"))
     }
 
     @Test

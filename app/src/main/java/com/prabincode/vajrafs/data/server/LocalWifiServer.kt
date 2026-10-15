@@ -271,7 +271,7 @@ object LocalWifiServer {
                     val rawTargetDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
                     val rawFilename = queryParams["filename"] ?: "Uploaded_${System.currentTimeMillis()}"
                     // Sanitize filename: strip any path traversal sequences
-                    val sanitizedFilename = File(rawFilename).name.ifBlank { "Uploaded_${System.currentTimeMillis()}" }
+                    val sanitizedFilename = sanitizeFileName(rawFilename, "Uploaded_${System.currentTimeMillis()}")
 
                     if (!isAllowedPath(rawTargetDir, appContext)) {
                         sendForbidden(output)
@@ -339,7 +339,7 @@ object LocalWifiServer {
                 if (path == "/mkdir") {
                     val rawTargetDir = queryParams["dir"] ?: Environment.getExternalStorageDirectory().absolutePath
                     val rawName = queryParams["name"] ?: "New Folder"
-                    val cleanFolderName = File(rawName).name.ifBlank { "New Folder" }
+                    val cleanFolderName = sanitizeFileName(rawName, "New Folder")
 
                     if (!isAllowedPath(rawTargetDir, appContext)) {
                         sendForbidden(output)
@@ -883,6 +883,20 @@ object LocalWifiServer {
             }
         }
         return out.toString()
+    }
+
+    /**
+     * Reduces a client-supplied file or folder name to a single safe path segment.
+     *
+     * `File(raw).name` alone is not enough: on Android (Linux) a backslash is not a separator, so
+     * "..\\..\\x" survives intact, and a bare ".." or "." would resolve to the parent or current
+     * directory. This keeps only the last segment after either separator, drops control
+     * characters, and falls back to [fallback] for empty, "." and ".." results.
+     */
+    fun sanitizeFileName(raw: String?, fallback: String): String {
+        val lastSegment = (raw ?: "").substringAfterLast('/').substringAfterLast('\\')
+        val cleaned = lastSegment.filter { it >= ' ' && it != '\u007F' }.trim()
+        return if (cleaned.isEmpty() || cleaned == "." || cleaned == "..") fallback else cleaned
     }
 
     fun isAllowedPath(path: String?, context: Context?): Boolean {
