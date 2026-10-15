@@ -1,5 +1,7 @@
 VajraFS 2.0.0
+- New name and app icon
 - Targets Android 16 (API 36)
-- Updates are now delivered through Google Play
-- Only ZIP and TAR.GZ open in the built-in extractor; other archives offer Open with
-- Long vault tasks and Wi-Fi transfer stop cleanly when Android's background time limit is reached
+- Duplicate cleaner now keeps the original and selects only the copies
+- Safer Wi-Fi transfer: upload and folder names can't point outside the chosen folder
+- RAR, 7z and other unsupported archives offer Open with
+- Long vault tasks and Wi-Fi transfer stop cleanly at Android's background time limit
