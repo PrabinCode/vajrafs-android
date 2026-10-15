@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">iManage Files</string>
+    <string name="app_name">VajraFS</string>
     <string name="developer_brand">PrabinCode</string>
     <string name="storage_permission_required">Storage access is required to manage files.</string>
     <string name="grant_permission">Grant Access</string>

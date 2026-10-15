@@ -27,11 +27,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+    - name: Test & Build Debug APKs (both flavors)
+      run: ./gradlew testGithubDebugUnitTest testPlayDebugUnitTest assembleGithubDebug assemblePlayDebug --stacktrace
 
-    - name: Upload Debug APK Artifact
+    - name: Upload Debug APK Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: iManage-Files-Debug-APK
-        path: app/build/outputs/apk/debug/*.apk
+        name: VajraFS-Debug-APKs
+        path: app/build/outputs/apk/*/debug/*.apk

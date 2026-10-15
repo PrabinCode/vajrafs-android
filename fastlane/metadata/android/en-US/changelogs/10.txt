@@ -1,0 +1,5 @@
+VajraFS 2.0.0
+- Targets Android 16 (API 36)
+- Updates are now delivered through Google Play
+- Only ZIP and TAR.GZ open in the built-in extractor; other archives offer Open with
+- Long vault tasks and Wi-Fi transfer stop cleanly when Android's background time limit is reached

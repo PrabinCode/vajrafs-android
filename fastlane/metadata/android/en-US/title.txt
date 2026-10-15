@@ -1,1 +1,1 @@
-I Manage
+VajraFS: Secure File Explorer

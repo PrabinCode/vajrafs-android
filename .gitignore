@@ -12,6 +12,11 @@
 /app/build
 app/build/
 build/
-.imanage_vault
-.imanage_trash
-IManage-v1.0.0.apk
+.vajrafs_vault
+.vajrafs_trash
+*.apk
+
+# Release signing (never commit keys)
+keystore.properties
+*.jks
+*.keystore

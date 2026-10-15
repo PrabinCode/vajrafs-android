@@ -1,9 +1,40 @@
-I Manage is an open-source, privacy-first file manager for Android.
+VajraFS is a private, open-source file manager for Android. Browse and organise your storage, lock private files in an encrypted vault, and move files to your computer over Wi-Fi without a cable. No account, no ads, no analytics.
 
-Key Features:
-- 100% Offline: Zero internet permissions.
-- Hardware-backed AES-256 Vault for files and folders.
-- Multi-pass secure file shredder.
-- Built-in offline PDF and Image viewer.
-- Local offline Wi-Fi PC file transfer.
-- Storage analyzer and clean Material 3 UI.
+SAFE VAULT
+• Move photos, videos, documents or whole folders into an AES-256 encrypted vault in the app's private storage
+• The vault key is protected by the Android Keystore and never leaves your phone
+• Unlock with fingerprint, face or a master PIN, with auto-lock when you leave the app
+• Important: the key can't be backed up. Move files out of the vault before a factory reset or uninstalling
+
+WI-FI PC TRANSFER
+• Open the address shown in the app in any browser on the same Wi-Fi and enter the 4-digit PIN
+• Upload, download, create folders and delete from your computer
+• Files go directly between phone and computer on your local network
+• Keeps running with the screen off, with a notification and a Stop button
+
+CLEAN UP STORAGE
+• Storage analyzer by category and a large-file finder
+• Duplicate finder that confirms exact copies with SHA-256 before you delete
+• Recycle bin so deleted files can be restored
+• File shredder that overwrites a file before deleting it (on flash storage this lowers, but can't rule out, recovery)
+
+BUILT-IN VIEWERS
+• Video player with swipe brightness and volume, speed control, zoom and picture-in-picture
+• PDF reader with continuous scrolling and night mode
+• Image viewer with zoom, rotation and EXIF details
+• Audio player with background playback
+• Text and code editor with line numbers and find in file
+
+MORE
+• Create ZIP files, with an optional AES password; extract ZIP and TAR.GZ
+• Colour tags, bookmarks and Open file location from search or recent files
+• Optional root browsing on rooted phones
+• Material You design with light and dark themes
+
+PRIVACY
+VajraFS doesn't collect or share any data. It uses the network only for Wi-Fi PC Transfer on your local network, while you have it switched on. All files access is needed so it can manage files anywhere on your storage, as any file manager does.
+
+OPEN SOURCE
+VajraFS is free software under the GNU GPL v3.0. Source code: github.com/PrabinCode/vajrafs-android
+
+Developed by Prabin Chandra Shrestha (PrabinCode).

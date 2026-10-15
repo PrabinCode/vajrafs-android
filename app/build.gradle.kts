@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,16 +8,16 @@ plugins {
 }
 
 android {
-    namespace = "com.prabincode.imanage"
-    compileSdk = 35
+    namespace = "com.prabincode.vajrafs"
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.prabincode.imanage"
+        applicationId = "com.prabincode.vajrafs"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 9
-        versionName = "1.8.0"
-        setProperty("archivesBaseName", "prabincode-imanage-v$versionName")
+        targetSdk = 36
+        versionCode = 10
+        versionName = "2.0.0"
+        setProperty("archivesBaseName", "prabincode-vajrafs-v$versionName")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -23,8 +25,46 @@ android {
         }
     }
 
+    // Release signing: keystore.properties in the repo root (local, git-ignored), or
+    // VAJRAFS_KEYSTORE_* environment variables (CI). Without either, release builds stay unsigned.
+    val keystoreProps = Properties().apply {
+        val file = rootProject.file("keystore.properties")
+        if (file.exists()) file.inputStream().use { load(it) }
+    }
+    fun signingValue(prop: String, env: String): String? =
+        keystoreProps.getProperty(prop) ?: System.getenv(env)
+
+    val releaseStoreFile = signingValue("storeFile", "VAJRAFS_KEYSTORE_PATH")
+    val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = signingValue("storePassword", "VAJRAFS_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "VAJRAFS_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "VAJRAFS_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // github: sideloaded APK with the in-app updater (src/github).
+    // play:   Google Play AAB with no self-update code (src/play); Play delivers updates.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+        }
+        create("play") {
+            dimension = "distribution"
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

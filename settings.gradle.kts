@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "iManageFiles"
+rootProject.name = "VajraFS"
 include(":app")

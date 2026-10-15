@@ -1,68 +1,67 @@
-# iManage Files — Privacy-First Native Android File Explorer
+# VajraFS — Secure File Explorer for Android
 
 <p align="center">
-  <b>A modern, ultra-secure, 100% private Android File Explorer built with Kotlin & Jetpack Compose (Material 3).</b>
+  <b>A private, open-source Android file manager built with Kotlin & Jetpack Compose (Material 3).</b>
   <br />
-  <i>Developed with ❤️ by <b>Prabin Chandra Shrestha (PrabinCode)</b></i>
+  <i>Developed by <b>Prabin Chandra Shrestha (PrabinCode)</b></i>
 </p>
 
 <p align="center">
-  <a href="https://github.com/PrabinCode/imanage-android/releases/latest">
+  <a href="https://github.com/PrabinCode/vajrafs-android/releases/latest">
     <img src="https://img.shields.io/badge/Download-Latest%20APK-006874?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" />
   </a>
-  <a href="https://pcshrestha.com.np/imanage">
+  <a href="https://pcshrestha.com.np/vajrafs">
     <img src="https://img.shields.io/badge/Official-Website-0284c7?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Official Website" />
   </a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-3DDC84?style=flat-square&logo=android&logoColor=white" />
-  <img src="https://img.shields.io/badge/Target%20SDK-34%20(Android%2014)-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/Target%20SDK-36%20(Android%2016)-green?style=flat-square" />
   <img src="https://img.shields.io/badge/Language-Kotlin%202.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white" />
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20(Material%203)-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" />
-  <img src="https://img.shields.io/badge/Architecture-Clean%20%2F%20Offline--First-orange?style=flat-square" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" />
 </p>
 
+> **Upgrading from an earlier build?** VajraFS uses the package `com.prabincode.vajrafs`, so it installs as a new app. Move your files out of Safe Vault in the old app before uninstalling it; vault keys can't be transferred.
+
 ---
 
-## 🌟 Key Features
+## 🌟 Features
 
-* **🛡️ 100% Private, Zero Tracking & Zero Telemetry:** Zero analytics SDKs, zero crash trackers, zero remote scraping. All file management remains strictly on-device.
-* **🔒 Hardware-Backed Safe Vault:** AES-256 GCM envelope encryption via Android KeyStore with biometric and PIN authentication, automatic auto-lock, and instant purge of decrypted temporary streams.
-* **🌐 High-Speed Wi-Fi PC Transfer:** Embedded HTTP server for wireless, cable-free file management directly from your computer browser with drag-and-drop upload and progress tracking.
-* **🧹 Storage Analyzer & Duplicate Cleaner:** Real-time visual disk breakdown, large files finder (>100MB), empty folder cleaner, cache purging, and two-stage SHA-256 duplicate detection.
-* **🗜️ Advanced Archive Suite:** Create password-protected encrypted ZIP archives and extract `.zip`, `.tar.gz`, `.tgz`, `.7z`, and `.rar` files.
-* **📄 Built-in Sandboxed Media & Document Viewers:** Instant native PDF reader, zoomable image gallery, background music player, and gesture-controlled video player with Picture-in-Picture (PiP).
-* **📝 In-App Code & Text Editor:** View and edit `.txt`, `.json`, `.xml`, `.md`, `.kt`, `.py`, `.sh`, `.log`, and config files directly with syntax-friendly styling.
-* **🌪️ DoD 5220.22-M File Shredder:** Cryptographic multi-pass overwriting (`0x00`, `0xFF`, `SecureRandom`) before file unlinking to ensure irrecoverable data sanitization.
-* **🗄️ Smart Recycle Bin:** Soft-delete safeguard with 1-tap instant file restoration or permanent shredding.
-* **🧭 Root & Storage Explorer:** Browse Internal Storage, SD cards, and root partitions (`/`) with dotfiles/hidden files toggling.
+* **🛡️ No tracking:** no analytics, crash-reporting or ad SDKs, and no account. Files stay on the device.
+* **🔒 Safe Vault:** AES-256 envelope encryption. The data key is wrapped by an Android Keystore key, unlocked with biometrics or a master PIN, with auto-lock.
+* **🌐 Wi-Fi PC Transfer:** a local HTTP server you open from any browser on the same Wi-Fi, protected by a session PIN. Upload, download, create folders and delete, with drag and drop.
+* **🧹 Storage tools:** category breakdown, large-file finder, and a duplicate finder that groups files by size and then confirms with SHA-256.
+* **🗜️ Archives:** create ZIP files, optionally password-protected with AES; extract `.zip`, `.tar.gz` and `.tgz`. Other archive types open with another app.
+* **📄 Built-in viewers:** PDF (continuous scroll, night mode), images (zoom, rotate, EXIF), audio (background playback), and video (Media3 gestures, speed, picture-in-picture).
+* **📝 Text & code editor:** line numbers, find in file and word wrap for `.txt`, `.json`, `.xml`, `.md`, `.kt`, `.py`, `.sh`, `.log` and more.
+* **🌪️ File shredder:** multi-pass overwrite (`0x00`, `0xFF`, `SecureRandom`) before deleting. On flash storage this lowers, but can't rule out, recovery.
+* **🗄️ Recycle bin:** restore deleted files with one tap.
+* **🧭 Root browsing:** optional, on rooted devices.
 
 ---
 
 ## 🏗️ Project Architecture
 
 ```
-app/src/main/java/com/prabincode/imanage/
-├── data/
-│   ├── archive/           # ZIP / TAR archive extraction and password-protected compression
-│   ├── crypto/            # Android KeyStore, AES-256 envelope crypto, DoD shredder, checksums
-│   ├── local/             # Room Database (Bookmarks, Trash, Vault index, Search history, Tags)
-│   ├── media/             # Media player and background audio playback manager
-│   ├── model/             # FileItem, FileType, StorageVolumeInfo, PrabinCodeBrand
-│   ├── repository/        # FileSystemRepository, VaultRepository, StorageAnalyzerRepository, TrashRepository
-│   ├── root/              # Root shell provider for deep storage exploration
-│   ├── security/          # AutoLockManager and lifecycle security safeguards
-│   ├── server/            # Local Wi-Fi HTTP socket server for PC transfer
-│   ├── service/           # Foreground dataSync services (Wi-Fi server & Vault encryption)
-│   └── update/            # In-app update manager and version checker
-├── ui/
-│   ├── components/        # BreadcrumbBar, FileListItem, AppDrawer, CategoryRow, StorageIndicator
-│   ├── navigation/        # Jetpack Compose Navigation graph and destination routing
-│   ├── screens/           # Home, Explorer, Vault, Analyzer, Trash, Search, Settings, Viewers
-│   └── theme/             # PrabinCodeTheme & Material 3 dynamic color scheme
-└── util/                  # File size formatters, MIME resolvers, external intent stream cleaners
+app/src/
+├── main/java/com/prabincode/vajrafs/
+│   ├── data/
+│   │   ├── archive/       # ZIP / TAR.GZ extraction and password-protected compression
+│   │   ├── crypto/        # Android Keystore, AES-256 envelope crypto, shredder, checksums
+│   │   ├── local/         # Room database (bookmarks, trash, vault index, search history, tags)
+│   │   ├── media/         # Background audio playback
+│   │   ├── model/         # FileItem, FileType, StorageVolumeInfo, PrabinCodeBrand
+│   │   ├── repository/    # FileSystem, Vault, StorageAnalyzer, Trash repositories
+│   │   ├── root/          # Root shell provider
+│   │   ├── security/      # AutoLockManager
+│   │   ├── server/        # Local Wi-Fi HTTP server for PC transfer
+│   │   └── service/       # Foreground dataSync services (Wi-Fi server, vault)
+│   ├── ui/                # Compose components, navigation, screens, theme
+│   └── util/              # Formatters, MIME resolvers, AppLinks
+├── github/java/...        # GitHub flavor: in-app updater (UpdateManager, UpdateSection)
+└── play/java/...          # Play flavor: no self-update code; Play delivers updates
 ```
 
 ---
@@ -71,27 +70,40 @@ app/src/main/java/com/prabincode/imanage/
 
 ### Prerequisites
 * JDK 17
-* Android SDK (API 35, Build Tools 35.0.0)
+* Android SDK with platform 36
+
+### Distribution flavors
+| Flavor | Output | Updates |
+|---|---|---|
+| `github` | APK for GitHub Releases | In-app "Check for updates" (downloads the new APK) |
+| `play` | App Bundle for Google Play | Through Google Play; contains no update code |
 
 ```bash
-# Clone the repository
-git clone https://github.com/PrabinCode/imanage-android.git
-cd imanage-android
+git clone https://github.com/PrabinCode/vajrafs-android.git
+cd vajrafs-android
 
-# Build Debug APK
-./gradlew assembleDebug
-
-# Build Release APK (Minified + ShrinkResources via R8)
-./gradlew assembleRelease
-
-# Build Google Play Store App Bundle (.aab)
-./gradlew bundleRelease
+./gradlew assembleGithubDebug        # Debug APK
+./gradlew testGithubDebugUnitTest    # Unit tests
+./gradlew assembleGithubRelease      # Release APK (R8 minified)
+./gradlew bundlePlayRelease          # Google Play App Bundle
 ```
 
-### Build Artifacts
-* **Debug APK:** `app/build/outputs/apk/debug/prabincode-imanage-v1.7.0-debug.apk`
-* **Release APK:** `app/build/outputs/apk/release/prabincode-imanage-v1.7.0-release-unsigned.apk`
-* **Play Store App Bundle:** `app/build/outputs/bundle/release/prabincode-imanage-v1.7.0-release.aab`
+### Release signing
+Release builds are signed only when a key is configured. Otherwise they build unsigned.
+* **Locally:** create a git-ignored `keystore.properties` in the repo root:
+  ```properties
+  storeFile=/absolute/path/vajrafs-upload.jks
+  storePassword=...
+  keyAlias=vajrafs
+  keyPassword=...
+  ```
+* **CI:** set the repository secrets `VAJRAFS_KEYSTORE_BASE64`, `VAJRAFS_KEYSTORE_PASSWORD`, `VAJRAFS_KEY_ALIAS` and `VAJRAFS_KEY_PASSWORD`. Tagged releases fail if signing is missing.
+
+Google Play re-signs Play installs with Play App Signing, so a GitHub APK can't update a Play install (or the other way round). Uninstall one to switch.
+
+### Build artifacts
+* **GitHub APK:** `app/build/outputs/apk/github/release/prabincode-vajrafs-v2.0.0-github-release.apk`
+* **Play App Bundle:** `app/build/outputs/bundle/playRelease/prabincode-vajrafs-v2.0.0-play-release.aab`
 
 ---
 
@@ -100,12 +112,12 @@ cd imanage-android
 **Prabin Chandra Shrestha (PrabinCode)**
 * **GitHub:** [@PrabinCode](https://github.com/PrabinCode)
 * **Website:** [pcshrestha.com.np](https://pcshrestha.com.np)
-* **Project Page:** [pcshrestha.com.np/imanage](https://pcshrestha.com.np/imanage)
+* **Project Page:** [pcshrestha.com.np/vajrafs](https://pcshrestha.com.np/vajrafs)
 
 ---
 
 ## 📄 License & Open-Source Notice
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for details.
 
-> Anyone redistributing or modifying this software must retain the author copyright notices, provide full attribution to **PrabinCode**, and distribute any derived works under the same GPL-3.0 license.
+> Anyone redistributing or modifying this software must keep the author copyright notices, credit **PrabinCode**, and release derived works under the same GPL-3.0 license.

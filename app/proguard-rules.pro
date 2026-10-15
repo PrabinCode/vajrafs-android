@@ -1,4 +1,4 @@
-# Proguard rules for I Manage
+# Proguard rules for VajraFS
 -keepattributes *Annotation*
 -dontwarn java.lang.management.**
 -keepclassmembers class * {
