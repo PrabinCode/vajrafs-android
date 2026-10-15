@@ -87,7 +87,7 @@ fun OnboardingScreen(
             highlights = listOf(
                 "Zero AI data scraping or remote model training",
                 "Zero 3rd-party trackers, analytics SDKs, or telemetry",
-                "100% Offline & Open-Source — files never leave your hardware"
+                "Open source — files stay on your phone unless you send them"
             )
         ),
         OnboardingPage(
@@ -104,14 +104,14 @@ fun OnboardingScreen(
             )
         ),
         OnboardingPage(
-            badge = "MILITARY-GRADE SECURITY",
+            badge = "ENCRYPTED VAULT",
             title = "Encrypted Vault & Secure Shredder",
-            subtitle = "Keep sensitive documents and private photos safe with hardware-backed AES-256-GCM cryptography.",
+            subtitle = "Keep sensitive documents and private photos safe with AES-256 encryption, its key protected by the Android Keystore.",
             icon = Icons.Outlined.EnhancedEncryption,
             accentColor = Color(0xFFE91E63),
             gradientColors = listOf(Color(0xFFE91E63), Color(0xFF880E4F)),
             highlights = listOf(
-                "AES-256-GCM encrypted hidden private vault",
+                "AES-256 encrypted private vault",
                 "Biometric & PBKDF2 Master PIN auto-lock protection",
                 "Multi-pass secure file shredder & anti-snooping FLAG_SECURE"
             )

@@ -251,7 +251,7 @@ fun HomeScreen(
                     ) {
                         HubCard(
                             title = "Safe Vault",
-                            subtitle = "AES-256 GCM",
+                            subtitle = "AES-256",
                             icon = Icons.Default.Lock,
                             iconColor = Color(0xFFEC407A),
                             onClick = onNavigateToVault,

@@ -146,7 +146,7 @@ fun DeleteConfirmationDialog(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "• Secure Shred: DoD multi-pass overwrite. Permanently unrecoverable.",
+                    text = "• Secure Shred: multi-pass overwrite before deleting. Cannot be undone.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.error
                 )

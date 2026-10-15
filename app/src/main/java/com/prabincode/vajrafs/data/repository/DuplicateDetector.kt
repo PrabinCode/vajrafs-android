@@ -74,7 +74,11 @@ object DuplicateDetector {
                 DuplicateGroup(
                     hash = hash,
                     fileSize = files.first().length(),
-                    files = files.map { FileItem.fromFile(it) }
+                    // Oldest copy first: the UI treats index 0 as the original to keep and
+                    // pre-selects the rest for deletion. Ties keep the shorter (usually canonical) path.
+                    files = files
+                        .sortedWith(compareBy<File>({ it.lastModified() }, { it.absolutePath.length }))
+                        .map { FileItem.fromFile(it) }
                 )
             }
             .sortedByDescending { it.fileSize * (it.files.size - 1) }
