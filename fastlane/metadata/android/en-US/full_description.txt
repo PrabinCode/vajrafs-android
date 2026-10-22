@@ -28,7 +28,6 @@ BUILT-IN VIEWERS
 MORE
 • Create ZIP files, with an optional AES password; extract ZIP and TAR.GZ
 • Colour tags, bookmarks and Open file location from search or recent files
-• Optional root browsing on rooted phones
 • Material You design with light and dark themes
 
 PRIVACY

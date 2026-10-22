@@ -70,7 +70,7 @@ class SearchViewModel(
     fun deleteFile(item: FileItem, shred: Boolean) {
         viewModelScope.launch {
             if (shred) {
-                ShredderEngine.shred(item.file, passes = 3)
+                ShredderEngine.shred(item.file, passes = ShredderEngine.configuredPasses(VajraApp.instance))
             } else {
                 trashRepository.moveToTrash(item.file)
             }

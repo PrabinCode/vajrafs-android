@@ -1,0 +1,6 @@
+VajraFS 2.1.0
+- Hidden folders like .thumbnails no longer appear in Recent Files, categories or search
+- Turning off .nomedia now also hides the folders it marks and the media inside them
+- Hidden and .nomedia files are off by default
+- The shredder now uses the number of passes you choose in Settings
+- Removed the unused root access setting

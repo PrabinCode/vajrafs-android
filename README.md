@@ -38,7 +38,6 @@
 * **📝 Text & code editor:** line numbers, find in file and word wrap for `.txt`, `.json`, `.xml`, `.md`, `.kt`, `.py`, `.sh`, `.log` and more.
 * **🌪️ File shredder:** multi-pass overwrite (`0x00`, `0xFF`, `SecureRandom`) before deleting. On flash storage this lowers, but can't rule out, recovery.
 * **🗄️ Recycle bin:** restore deleted files with one tap.
-* **🧭 Root browsing:** optional, on rooted devices.
 
 ---
 
@@ -54,7 +53,6 @@ app/src/
 │   │   ├── media/         # Background audio playback
 │   │   ├── model/         # FileItem, FileType, StorageVolumeInfo, PrabinCodeBrand
 │   │   ├── repository/    # FileSystem, Vault, StorageAnalyzer, Trash repositories
-│   │   ├── root/          # Root shell provider
 │   │   ├── security/      # AutoLockManager
 │   │   ├── server/        # Local Wi-Fi HTTP server for PC transfer
 │   │   └── service/       # Foreground dataSync services (Wi-Fi server, vault)

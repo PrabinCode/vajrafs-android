@@ -219,10 +219,15 @@ class ExplorerViewModel(
         setSortOption(option)
     }
 
+    private var lastShowNomedia: Boolean? = null
+
     fun syncSettings() {
         val prefs = VajraApp.instance.getSharedPreferences("vajrafs_prefs", Context.MODE_PRIVATE)
         val showHidden = prefs.getBoolean("show_hidden_files", false)
-        if (_uiState.value.sortOption.showHiddenFiles != showHidden) {
+        val showNomedia = prefs.getBoolean("show_nomedia_files", false)
+        val nomediaChanged = lastShowNomedia != null && lastShowNomedia != showNomedia
+        lastShowNomedia = showNomedia
+        if (_uiState.value.sortOption.showHiddenFiles != showHidden || nomediaChanged) {
             _uiState.value = _uiState.value.copy(
                 sortOption = _uiState.value.sortOption.copy(showHiddenFiles = showHidden)
             )
@@ -331,7 +336,7 @@ class ExplorerViewModel(
         viewModelScope.launch {
             for (item in items) {
                 if (shred) {
-                    ShredderEngine.shred(item.file, passes = 3)
+                    ShredderEngine.shred(item.file, passes = ShredderEngine.configuredPasses(VajraApp.instance))
                 } else {
                     trashRepository.moveToTrash(item.file)
                 }

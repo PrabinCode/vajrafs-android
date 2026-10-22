@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prabincode.vajrafs.data.crypto.PinCryptoHelper
-import com.prabincode.vajrafs.data.root.RootShellProvider
 import com.prabincode.vajrafs.util.AppLinks
 import com.prabincode.vajrafs.util.formatFileSize
 import kotlinx.coroutines.Dispatchers
@@ -66,14 +65,11 @@ fun SettingsScreen(
     var autoLockTimeout by remember {
         mutableIntStateOf(PinCryptoHelper.getAutoLockTimeoutSeconds(context))
     }
-    var rootAccessEnabled by remember {
-        mutableStateOf(prefs.getBoolean("root_access_enabled", false))
-    }
     var showHiddenFiles by remember {
         mutableStateOf(prefs.getBoolean("show_hidden_files", false))
     }
     var showNomediaFiles by remember {
-        mutableStateOf(prefs.getBoolean("show_nomedia_files", true))
+        mutableStateOf(prefs.getBoolean("show_nomedia_files", false))
     }
     var showTimeoutMenu by remember { mutableStateOf(false) }
     var showDefaultAppDialog by remember { mutableStateOf(false) }
@@ -275,10 +271,10 @@ fun SettingsScreen(
                         Icon(Icons.Default.HideImage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Show .nomedia Files", fontWeight = FontWeight.SemiBold)
+                            Text("Show .nomedia Files & Folders", fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "Display .nomedia hidden marker files inside media directories.",
+                                "When off, hides .nomedia markers, folders containing them, and their media from Recent Files, categories and search.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -612,62 +608,6 @@ fun SettingsScreen(
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp
-                        )
-                    }
-                }
-            }
-
-            // Power User / Root Access
-            item {
-                Text(
-                    text = "Advanced & Power Users",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Elevated Root & Shizuku Access", fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "Enables root shell commands and system partition access if device is rooted.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = rootAccessEnabled,
-                            onCheckedChange = { isChecked ->
-                                if (isChecked) {
-                                    scope.launch {
-                                        val hasRoot = RootShellProvider.isRootAvailable()
-                                        if (hasRoot) {
-                                            rootAccessEnabled = true
-                                            prefs.edit().putBoolean("root_access_enabled", true).apply()
-                                            Toast.makeText(context, "Root access enabled", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            rootAccessEnabled = false
-                                            Toast.makeText(context, "No root / su binary detected on this device", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                } else {
-                                    rootAccessEnabled = false
-                                    prefs.edit().putBoolean("root_access_enabled", false).apply()
-                                }
-                            }
                         )
                     }
                 }

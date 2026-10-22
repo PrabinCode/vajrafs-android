@@ -31,7 +31,56 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
+/**
+ * Applies the "Show Hidden Files & Folders" and "Show .nomedia Files" preferences to any path,
+ * including files nested deep inside hidden or .nomedia-marked folders (e.g. DCIM/.thumbnails/x.jpg).
+ */
+class FileVisibilityFilter(
+    private val showHidden: Boolean,
+    private val showNomedia: Boolean
+) {
+    private val nomediaDirCache = HashMap<String, Boolean>()
+
+    fun isVisible(file: File): Boolean {
+        if (!showNomedia && file.name == ".nomedia") return false
+        if (!showHidden && hasHiddenSegment(file)) return false
+        if (!showNomedia && isInsideNomediaDir(file)) return false
+        return true
+    }
+
+    private fun hasHiddenSegment(file: File): Boolean {
+        if (file.isHidden) return true
+        var current: File? = file
+        while (current != null) {
+            if (current.name.startsWith(".")) return true
+            current = current.parentFile
+        }
+        return false
+    }
+
+    // True if the file is a .nomedia-marked folder, or lives anywhere beneath one.
+    private fun isInsideNomediaDir(file: File): Boolean {
+        var current: File? = if (file.isDirectory) file else file.parentFile
+        while (current != null) {
+            val marked = nomediaDirCache.getOrPut(current.absolutePath) {
+                File(current, ".nomedia").exists()
+            }
+            if (marked) return true
+            current = current.parentFile
+        }
+        return false
+    }
+}
+
 class FileSystemRepository(private val context: Context) {
+
+    fun createVisibilityFilter(): FileVisibilityFilter {
+        val prefs = context.getSharedPreferences("vajrafs_prefs", Context.MODE_PRIVATE)
+        return FileVisibilityFilter(
+            showHidden = prefs.getBoolean("show_hidden_files", false),
+            showNomedia = prefs.getBoolean("show_nomedia_files", false)
+        )
+    }
 
     /**
      * Discovers all available storage volumes (Internal storage, Removable SD cards, and System Root /).
@@ -137,10 +186,14 @@ class FileSystemRepository(private val context: Context) {
         val rawFiles = dir.listFiles() ?: return@withContext emptyList()
 
         val prefs = context.getSharedPreferences("vajrafs_prefs", Context.MODE_PRIVATE)
-        val showNomedia = prefs.getBoolean("show_nomedia_files", true)
+        val showNomedia = prefs.getBoolean("show_nomedia_files", false)
 
         val filtered = rawFiles.filter { file ->
             if (file.name == ".nomedia" && !showNomedia) {
+                return@filter false
+            }
+            // Hide folders marked with .nomedia when .nomedia files are turned off
+            if (!showNomedia && file.isDirectory && File(file, ".nomedia").exists()) {
                 return@filter false
             }
             if (!sortOption.showHiddenFiles && (file.isHidden || file.name.startsWith("."))) {
@@ -175,6 +228,7 @@ class FileSystemRepository(private val context: Context) {
         rootPath: String = Environment.getExternalStorageDirectory().absolutePath
     ): List<FileItem> = withContext(Dispatchers.IO) {
         val results = mutableListOf<FileItem>()
+        val visibility = createVisibilityFilter()
 
         // 1. MediaStore query based on category
         try {
@@ -209,7 +263,7 @@ class FileSystemRepository(private val context: Context) {
                     val path = cursor.getString(dataIndex)
                     if (!path.isNullOrEmpty()) {
                         val file = File(path)
-                        if (file.exists() && file.isFile) {
+                        if (file.exists() && file.isFile && visibility.isVisible(file)) {
                             val item = FileItem.fromFile(file)
                             if (categoryType in setOf(FileType.IMAGE, FileType.VIDEO, FileType.AUDIO) || item.fileType == categoryType) {
                                 results.add(item)
@@ -230,6 +284,7 @@ class FileSystemRepository(private val context: Context) {
                     if (dir.name.startsWith(".") || dir.name == "Android") return
                     val list = dir.listFiles() ?: return
                     for (f in list) {
+                        if (!visibility.isVisible(f)) continue
                         if (f.isDirectory) {
                             scan(f)
                         } else {
@@ -252,8 +307,7 @@ class FileSystemRepository(private val context: Context) {
      */
     fun searchFiles(
         rootPath: String,
-        query: String,
-        showHidden: Boolean = false
+        query: String
     ): Flow<List<FileItem>> = flow {
         val root = File(rootPath)
         if (!root.exists()) {
@@ -263,11 +317,12 @@ class FileSystemRepository(private val context: Context) {
 
         val cleanQuery = query.trim().lowercase()
         val results = mutableListOf<FileItem>()
+        val visibility = createVisibilityFilter()
 
         fun traverse(dir: File) {
             val list = dir.listFiles() ?: return
             for (f in list) {
-                if (!showHidden && (f.isHidden || f.name.startsWith("."))) continue
+                if (!visibility.isVisible(f)) continue
 
                 if (f.name.lowercase().contains(cleanQuery)) {
                     results.add(FileItem.fromFile(f))

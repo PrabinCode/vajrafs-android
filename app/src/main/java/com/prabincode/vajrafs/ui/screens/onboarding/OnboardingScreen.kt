@@ -100,7 +100,7 @@ fun OnboardingScreen(
             highlights = listOf(
                 "Instant categorized navigation (Media, Docs, APKs, Code)",
                 "Fast batch file operations, custom tags & bookmarks",
-                "Optional elevated Root Shell explorer for power users"
+                "Browse internal storage, SD cards and the system root (/)"
             )
         ),
         OnboardingPage(

@@ -23,6 +23,14 @@ object ShredderEngine {
     private val secureRandom = SecureRandom()
 
     /**
+     * Overwrite passes chosen by the user in Settings ("Shredder Overwrite Passes").
+     */
+    fun configuredPasses(context: Context): Int =
+        context.getSharedPreferences("vajrafs_prefs", Context.MODE_PRIVATE)
+            .getInt("shred_passes", 3)
+            .coerceIn(1, 7)
+
+    /**
      * Fast secure wipe for vault operations:
      * Overwrites container headers (first 256 KB) and trailer (last 64 KB) with zeros,
      * truncates the file to 0 bytes, renames to a random UUID to wipe filesystem metadata,

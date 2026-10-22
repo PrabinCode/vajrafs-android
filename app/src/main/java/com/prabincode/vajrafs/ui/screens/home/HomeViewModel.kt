@@ -83,6 +83,7 @@ class HomeViewModel(
                 val volumes = fileSystemRepository.getStorageVolumes()
 
                 val recents = mutableListOf<FileItem>()
+                val visibility = fileSystemRepository.createVisibilityFilter()
                 val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
                 val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
@@ -92,7 +93,7 @@ class HomeViewModel(
                 fun collectRecent(dir: File) {
                     try {
                         if (dir.exists()) {
-                            dir.walkTopDown().maxDepth(3).filter { it.isFile && !it.name.startsWith(".") }.forEach {
+                            dir.walkTopDown().maxDepth(3).filter { it.isFile && visibility.isVisible(it) }.forEach {
                                 recents.add(FileItem.fromFile(it))
                             }
                         }
@@ -120,7 +121,7 @@ class HomeViewModel(
                             val path = cursor.getString(dataIdx)
                             if (!path.isNullOrEmpty()) {
                                 val f = File(path)
-                                if (f.exists() && f.isFile && !f.name.startsWith(".")) {
+                                if (f.exists() && f.isFile && visibility.isVisible(f)) {
                                     recents.add(FileItem.fromFile(f))
                                     count++
                                 }
@@ -146,7 +147,7 @@ class HomeViewModel(
     fun deleteFile(item: FileItem, shred: Boolean) {
         viewModelScope.launch {
             if (shred) {
-                ShredderEngine.shred(item.file, passes = 3)
+                ShredderEngine.shred(item.file, passes = ShredderEngine.configuredPasses(VajraApp.instance))
             } else {
                 trashRepository.moveToTrash(item.file)
             }
