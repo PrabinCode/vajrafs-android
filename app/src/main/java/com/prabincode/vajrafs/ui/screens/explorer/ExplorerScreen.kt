@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.prabincode.vajrafs.data.model.*
 import com.prabincode.vajrafs.ui.components.*
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -65,6 +66,8 @@ fun ExplorerScreen(
     val scope = rememberCoroutineScope()
 
     var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showCreateFileDialog by remember { mutableStateOf(false) }
+    var showCreateActionMenu by remember { mutableStateOf(false) }
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
     var itemForInfo by remember { mutableStateOf<FileItem?>(null) }
     var itemForTag by remember { mutableStateOf<FileItem?>(null) }
@@ -155,6 +158,7 @@ fun ExplorerScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
+                    windowInsets = safeStatusBarInsets(),
                     title = {
                         Text(
                             text = if (state.isSelectionMode) "${state.selectedFiles.size} selected" else state.title,
@@ -189,7 +193,7 @@ fun ExplorerScreen(
                             IconButton(onClick = { viewModel.toggleBookmarkCurrentPath() }) {
                                 Icon(
                                     imageVector = if (state.isBookmarked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
-                                    contentDescription = "Bookmark folder",
+                                    contentDescription = if (state.isBookmarked) "Remove from favourites" else "Add to favourites",
                                     tint = if (state.isBookmarked) androidx.compose.ui.graphics.Color(0xFFF59E0B) else MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -303,10 +307,10 @@ fun ExplorerScreen(
                 )
             } else if (!state.isSelectionMode && !state.isCategoryMode) {
                 FloatingActionButton(
-                    onClick = { showCreateFolderDialog = true },
+                    onClick = { showCreateActionMenu = true },
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = "New Folder")
+                    Icon(Icons.Default.Add, contentDescription = "Add / Create")
                 }
             }
         }
@@ -412,6 +416,8 @@ fun ExplorerScreen(
                                 isSelectionMode = state.isSelectionMode,
                                 isSelected = isSelected,
                                 tagColorHex = state.tagsMap[item.path],
+                                isBookmarked = state.bookmarks.any { it.path == item.path },
+                                onBookmarkClick = { viewModel.toggleBookmark(item.path, item.name) },
                                 onClick = {
                                     if (state.isSelectionMode) {
                                         viewModel.toggleFileSelection(item.path)
@@ -490,6 +496,24 @@ fun ExplorerScreen(
                 }
             }
         }
+    }
+
+    if (showCreateActionMenu) {
+        CreateActionBottomSheet(
+            onDismiss = { showCreateActionMenu = false },
+            onCreateFolderClick = { showCreateFolderDialog = true },
+            onCreateFileClick = { showCreateFileDialog = true }
+        )
+    }
+
+    if (showCreateFileDialog) {
+        CreateFileDialog(
+            onDismiss = { showCreateFileDialog = false },
+            onConfirm = {
+                viewModel.createFile(it)
+                showCreateFileDialog = false
+            }
+        )
     }
 
     if (showCreateFolderDialog) {

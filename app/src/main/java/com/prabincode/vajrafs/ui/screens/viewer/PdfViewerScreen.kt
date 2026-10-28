@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.LruCache
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,6 +20,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -46,6 +48,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.prabincode.vajrafs.util.ImmersiveMode
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import java.io.File
 
 // Invert colors ColorMatrix: R' = 255 - R, G' = 255 - G, B' = 255 - B
@@ -71,11 +75,20 @@ fun PdfViewerScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // Reading preferences
+    var isFullscreen by remember { mutableStateOf(false) }
     var isNightMode by remember { mutableStateOf(false) }
     var showJumpDialog by remember { mutableStateOf(false) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+
+    // Safe Back handling when in fullscreen
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
+    }
+
+    // Temporary Immersive Full-Screen Mode (hides status bar & navigation bar)
+    ImmersiveMode(enabled = isFullscreen)
 
     // PdfRenderer & Thread synchronization
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
@@ -158,64 +171,76 @@ fun PdfViewerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(file.name, fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 16.sp)
-                        if (pageCount > 0) {
-                            Text(
-                                text = "Page ${listState.firstVisibleItemIndex + 1} of $pageCount",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (!isFullscreen) {
+                TopAppBar(
+                    windowInsets = safeStatusBarInsets(),
+                    title = {
+                        Column {
+                            Text(file.name, fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 16.sp)
+                            if (pageCount > 0) {
+                                Text(
+                                    text = "Page ${listState.firstVisibleItemIndex + 1} of $pageCount",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        // Night Mode Toggle
+                        IconButton(onClick = { isNightMode = !isNightMode }) {
+                            Icon(
+                                imageVector = if (isNightMode) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                contentDescription = if (isNightMode) "Normal Mode" else "Night Mode",
+                                tint = if (isNightMode) Color(0xFFFFD54F) else MaterialTheme.colorScheme.onSurface
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Night Mode Toggle
-                    IconButton(onClick = { isNightMode = !isNightMode }) {
-                        Icon(
-                            imageVector = if (isNightMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = if (isNightMode) "Normal Mode" else "Night Mode",
-                            tint = if (isNightMode) Color(0xFFFFD54F) else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
 
-                    // Jump to Page Button
-                    if (pageCount > 1) {
-                        IconButton(onClick = { showJumpDialog = true }) {
-                            Icon(Icons.Default.FindInPage, contentDescription = "Jump to Page")
+                        // Jump to Page Button
+                        if (pageCount > 1) {
+                            IconButton(onClick = { showJumpDialog = true }) {
+                                Icon(Icons.Default.FindInPage, contentDescription = "Jump to Page")
+                            }
                         }
-                    }
 
-                    // Zoom In
-                    IconButton(onClick = { scale = (scale + 0.25f).coerceAtMost(3.0f) }) {
-                        Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In")
-                    }
-
-                    // Zoom Out
-                    if (scale > 1f) {
-                        IconButton(onClick = {
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
-                        }) {
-                            Icon(Icons.Default.ZoomOut, contentDescription = "Reset Zoom")
+                        // Zoom In
+                        IconButton(onClick = { scale = (scale + 0.25f).coerceAtMost(3.0f) }) {
+                            Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In")
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (isNightMode) Color(0xFF121212) else MaterialTheme.colorScheme.surface
+
+                        // Zoom Out
+                        if (scale > 1f) {
+                            IconButton(onClick = {
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            }) {
+                                Icon(Icons.Default.ZoomOut, contentDescription = "Reset Zoom")
+                            }
+                        }
+
+                        // Fullscreen Toggle
+                        IconButton(onClick = { isFullscreen = !isFullscreen }) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                                tint = if (isNightMode) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = if (isNightMode) Color(0xFF121212) else MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+            }
         },
         bottomBar = {
-            if (pageCount > 0) {
+            if (!isFullscreen && pageCount > 0) {
                 Surface(
                     color = if (isNightMode) Color(0xFF1A1A1A) else MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth()
@@ -241,56 +266,107 @@ fun PdfViewerScreen(
         containerColor = if (isNightMode) Color(0xFF0D0D0D) else Color(0xFF262626)
     ) { padding ->
         Box(
-            contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(1f, 3.5f)
-                        if (scale > 1f) {
-                            offsetX += pan.x
-                            offsetY += pan.y
-                        } else {
-                            offsetX = 0f
-                            offsetY = 0f
+                .padding(if (!isFullscreen) padding else PaddingValues(0.dp))
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 3.5f)
+                            if (scale > 1f) {
+                                offsetX += pan.x
+                                offsetY += pan.y
+                            } else {
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+                        }
+                    }
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White)
+                } else if (errorMessage != null) {
+                    Text(
+                        text = errorMessage ?: "",
+                        color = Color.Red,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                } else {
+                    // Continuous Vertical Page List
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(
+                            count = pageCount,
+                            key = { it }
+                        ) { pageIndex ->
+                            PdfPageItem(
+                                pageIndex = pageIndex,
+                                isNightMode = isNightMode,
+                                onLoadBitmap = { loadPageBitmap(pageIndex) }
+                            )
                         }
                     }
                 }
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = Color.White)
-            } else if (errorMessage != null) {
-                Text(
-                    text = errorMessage ?: "",
-                    color = Color.Red,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(16.dp)
-                )
-            } else {
-                // Continuous Vertical Page List
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+            }
+
+            // Floating Exit Fullscreen Button
+            AnimatedVisibility(
+                visible = isFullscreen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(16.dp)
+            ) {
+                Surface(
+                    onClick = { isFullscreen = false },
+                    color = Color.Black.copy(alpha = 0.65f),
+                    shape = CircleShape,
+                    shadowElevation = 6.dp
                 ) {
-                    items(
-                        count = pageCount,
-                        key = { it }
-                    ) { pageIndex ->
-                        PdfPageItem(
-                            pageIndex = pageIndex,
-                            isNightMode = isNightMode,
-                            onLoadBitmap = { loadPageBitmap(pageIndex) }
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.FullscreenExit,
+                        contentDescription = "Exit Fullscreen",
+                        tint = Color.White,
+                        modifier = Modifier.padding(10.dp).size(24.dp)
+                    )
+                }
+            }
+
+            // Floating page badge during fullscreen
+            if (isFullscreen && pageCount > 0) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(16.dp),
+                    shadowElevation = 4.dp
+                ) {
+                    Text(
+                        text = "${listState.firstVisibleItemIndex + 1} / $pageCount",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
                 }
             }
         }

@@ -21,6 +21,7 @@ import com.prabincode.vajrafs.data.repository.TrashRepository
 import com.prabincode.vajrafs.data.repository.VaultRepository
 import com.prabincode.vajrafs.data.service.VaultService
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 import com.prabincode.vajrafs.data.local.entity.BookmarkEntity
 import com.prabincode.vajrafs.data.repository.BookmarkRepository
@@ -255,9 +257,10 @@ class ExplorerViewModel(
     fun createFile(name: String) {
         viewModelScope.launch {
             val result = fileSystemRepository.createFile(_uiState.value.currentPath, name)
-            result.onSuccess {
+            result.onSuccess { created ->
                 loadCurrent()
                 _uiState.value = _uiState.value.copy(toastMessage = "File created: $name")
+                if (created.name == ".nomedia") created.parentFile?.let { rescanFolderMediaInBackground(it) }
             }.onFailure {
                 _uiState.value = _uiState.value.copy(toastMessage = "Error: ${it.message}")
             }
@@ -416,13 +419,13 @@ class ExplorerViewModel(
                 bookmarkRepository.removeBookmark(current)
                 _uiState.value = _uiState.value.copy(
                     isBookmarked = false,
-                    toastMessage = "Removed from bookmarks"
+                    toastMessage = "Removed from favourites"
                 )
             } else {
                 bookmarkRepository.addBookmark(current, title, isDirectory = true)
                 _uiState.value = _uiState.value.copy(
                     isBookmarked = true,
-                    toastMessage = "Added to bookmarks"
+                    toastMessage = "Added to favourites"
                 )
             }
         }
@@ -433,9 +436,58 @@ class ExplorerViewModel(
             bookmarkRepository.removeBookmark(path)
             _uiState.value = _uiState.value.copy(
                 isBookmarked = if (_uiState.value.currentPath == path) false else _uiState.value.isBookmarked,
-                toastMessage = "Bookmark removed"
+                toastMessage = "Removed from favourites"
             )
         }
+    }
+
+    fun toggleBookmark(path: String, title: String) {
+        viewModelScope.launch {
+            val exists = bookmarkRepository.isBookmarked(path)
+            if (exists) {
+                bookmarkRepository.removeBookmark(path)
+                _uiState.value = _uiState.value.copy(
+                    isBookmarked = if (_uiState.value.currentPath == path) false else _uiState.value.isBookmarked,
+                    toastMessage = "Removed from favourites"
+                )
+            } else {
+                bookmarkRepository.addBookmark(path, title, isDirectory = true)
+                _uiState.value = _uiState.value.copy(
+                    isBookmarked = if (_uiState.value.currentPath == path) true else _uiState.value.isBookmarked,
+                    toastMessage = "Added to favourites"
+                )
+            }
+        }
+    }
+
+    fun toggleNomediaInCurrentFolder() {
+        viewModelScope.launch {
+            val currentDir = File(_uiState.value.currentPath)
+            val nomediaFile = File(currentDir, ".nomedia")
+            if (withContext(Dispatchers.IO) { nomediaFile.exists() }) {
+                if (withContext(Dispatchers.IO) { nomediaFile.delete() }) {
+                    loadCurrent()
+                    _uiState.value = _uiState.value.copy(toastMessage = "Removed .nomedia (Media will appear in Gallery)")
+                    rescanFolderMediaInBackground(currentDir)
+                } else {
+                    _uiState.value = _uiState.value.copy(toastMessage = "Failed to delete .nomedia")
+                }
+            } else {
+                val result = fileSystemRepository.createFile(_uiState.value.currentPath, ".nomedia")
+                result.onSuccess {
+                    loadCurrent()
+                    _uiState.value = _uiState.value.copy(toastMessage = "Added .nomedia (Media hidden from Gallery)")
+                    rescanFolderMediaInBackground(currentDir)
+                }.onFailure {
+                    _uiState.value = _uiState.value.copy(toastMessage = "Error: ${it.message}")
+                }
+            }
+        }
+    }
+
+    // Gallery re-index runs separately so the list refresh and toast aren't held up by a big folder
+    private fun rescanFolderMediaInBackground(dir: File) {
+        viewModelScope.launch { fileSystemRepository.rescanFolderMedia(dir) }
     }
 
     fun batchRename(items: List<FileItem>, newNames: List<String>) {

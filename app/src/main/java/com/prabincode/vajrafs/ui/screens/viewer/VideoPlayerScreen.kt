@@ -18,18 +18,26 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.SystemClock
+import android.provider.Settings
 import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,10 +75,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.prabincode.vajrafs.util.ImmersiveMode
 import com.prabincode.vajrafs.util.formatFileSize
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +90,8 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 enum class VideoAspectMode(val label: String, val resizeMode: Int) {
     FIT("Fit", AspectRatioFrameLayout.RESIZE_MODE_FIT),
@@ -98,6 +111,19 @@ enum class RepeatMode(val label: String) {
     ALL("Repeat All"),
     ONE("Repeat One")
 }
+
+private enum class DragGestureType {
+    NONE,
+    BRIGHTNESS,
+    VOLUME,
+    SEEK,
+    IGNORED
+}
+
+private data class HorizontalSeekData(
+    val targetPosition: Long,
+    val deltaMs: Long
+)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -147,6 +173,7 @@ fun VideoPlayerScreen(
 
     // UI overlays & HUD state
     var showControls by remember { mutableStateOf(true) }
+    var isFullscreen by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(false) }
     var aspectMode by remember { mutableStateOf(VideoAspectMode.FIT) }
     var orientationState by remember { mutableStateOf(OrientationState.SENSOR) }
@@ -158,6 +185,12 @@ fun VideoPlayerScreen(
     var showFastForwardHud by remember { mutableStateOf(false) }
     var isCapturingFrame by remember { mutableStateOf(false) }
 
+    // Set the moment the user leaves, so the video surface is dropped before the exit animation starts
+    var isClosing by remember { mutableStateOf(false) }
+
+    // Temporary Immersive Full-Screen Mode (hides top status bar and navigation bar)
+    ImmersiveMode(enabled = isFullscreen || !showControls || isLocked)
+
     // Pinch-to-zoom & Pan state
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
@@ -165,8 +198,16 @@ fun VideoPlayerScreen(
     // Gesture HUDs
     var brightnessHud by remember { mutableStateOf<Float?>(null) } // 0f to 1f
     var volumeHud by remember { mutableStateOf<Int?>(null) } // 0 to maxVolume
+    var horizontalSeekData by remember { mutableStateOf<HorizontalSeekData?>(null) }
+    var dismissSeekJob by remember { mutableStateOf<Job?>(null) }
+    // Double-tap seek streak: while its badge is showing, every further tap on that side adds 10s
     var doubleTapSeekLeft by remember { mutableStateOf(false) }
     var doubleTapSeekRight by remember { mutableStateOf(false) }
+    var seekStreakSeconds by remember { mutableIntStateOf(0) }
+    var seekStreakTick by remember { mutableIntStateOf(0) }
+
+    // Position the current video resumed from, shown briefly with a "Start over" action
+    var resumedFrom by remember { mutableStateOf<Long?>(null) }
 
     // Sheets & Dialogs
     var showSpeedDialog by remember { mutableStateOf(false) }
@@ -175,9 +216,31 @@ fun VideoPlayerScreen(
     // Initial brightness extraction
     val initialBrightness = remember {
         val windowBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
-        if (windowBrightness in 0f..1f) windowBrightness else 0.5f
+        if (windowBrightness in 0f..1f) {
+            windowBrightness
+        } else {
+            // No window override yet: start from the system level so the first swipe doesn't jump.
+            // Some OEMs (e.g. Xiaomi) use a range above 255; those fall back to the midpoint.
+            val system = try {
+                Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+            } catch (_: Exception) {
+                -1
+            }
+            if (system in 1..255) system / 255f else 0.5f
+        }
     }
     var currentBrightness by remember { mutableFloatStateOf(initialBrightness) }
+
+    val resumeStore = remember { VideoResumeStore(context) }
+
+    // Starts at the saved position directly, so the video doesn't visibly jump after loading
+    fun loadVideo(player: ExoPlayer, file: File) {
+        val resumeAt = resumeStore.get(file)
+        resumedFrom = resumeAt
+        val item = MediaItem.fromUri(Uri.fromFile(file))
+        if (resumeAt != null) player.setMediaItem(item, resumeAt) else player.setMediaItem(item)
+        player.prepare()
+    }
 
     // ExoPlayer instance
     val exoPlayer = remember {
@@ -187,19 +250,96 @@ fun VideoPlayerScreen(
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build()
             setAudioAttributes(audioAttributes, true)
-            setMediaItem(MediaItem.fromUri(Uri.fromFile(currentFile)))
-            prepare()
+            // Pause instead of blasting through the speaker when headphones are unplugged
+            setHandleAudioBecomingNoisy(true)
+            loadVideo(this, currentFile)
             playWhenReady = true
         }
+    }
+
+    // Saves where the given video was left off (cleared when it was near the start or end)
+    fun saveResumePosition(file: File) {
+        val total = exoPlayer.duration
+        if (total > 0) resumeStore.save(file, exoPlayer.currentPosition, total)
+    }
+
+    val originalOrientation = remember {
+        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+
+    // Leave in one step: silence audio, drop the SurfaceView (it ignores Compose's fade, so it would
+    // otherwise stay on screen for the whole exit animation) and restore orientation before navigating.
+    // Also guards against a double tap popping the explorer screen too.
+    fun closePlayer() {
+        if (isClosing) return
+        isClosing = true
+        exoPlayer.pause()
+        saveResumePosition(currentFile)
+        activity?.requestedOrientation = originalOrientation
+        onNavigateBack()
+    }
+
+    // Back priority: locked -> only reveal the unlock button; fullscreen -> exit fullscreen; otherwise close
+    BackHandler(enabled = isLocked) {
+        showControls = true
+    }
+    BackHandler(enabled = !isLocked && isFullscreen) {
+        isFullscreen = false
+        showControls = true
+    }
+    BackHandler(enabled = !isLocked && !isFullscreen) {
+        closePlayer()
+    }
+
+    // Restarts from the beginning when the video already ended, where play() alone does nothing
+    fun togglePlayPause() {
+        when {
+            exoPlayer.isPlaying -> exoPlayer.pause()
+            exoPlayer.playbackState == Player.STATE_ENDED -> {
+                exoPlayer.seekTo(0L)
+                exoPlayer.play()
+            }
+            else -> exoPlayer.play()
+        }
+    }
+
+    // While scrubbing, jump to the nearest keyframe (fast) so the picture follows the finger; throttled
+    // so the decoder isn't flooded. commitSeek() then lands on the exact frame when the finger lifts.
+    var lastPreviewSeekAt by remember { mutableLongStateOf(0L) }
+    fun previewSeek(positionMs: Long) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastPreviewSeekAt < 100L) return
+        lastPreviewSeekAt = now
+        exoPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+        exoPlayer.seekTo(positionMs)
+    }
+    fun commitSeek(positionMs: Long) {
+        exoPlayer.setSeekParameters(SeekParameters.DEFAULT)
+        exoPlayer.seekTo(positionMs)
+        currentPosition = positionMs
+    }
+
+    // Double-tap seek; repeated taps during the streak stack up (-10s, -20s, -30s...)
+    fun streakSeek(forward: Boolean) {
+        val continuing = if (forward) doubleTapSeekRight else doubleTapSeekLeft
+        seekStreakSeconds = if (continuing) seekStreakSeconds + 10 else 10
+        doubleTapSeekRight = forward
+        doubleTapSeekLeft = !forward
+        val newPos = if (forward) {
+            (exoPlayer.currentPosition + 10_000L).coerceAtMost(duration)
+        } else {
+            (exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L)
+        }
+        commitSeek(newPos)
+        seekStreakTick++
     }
 
     // Switch video track helper
     fun playVideoAtIndex(index: Int) {
         if (index in folderVideos.indices) {
+            saveResumePosition(currentFile)
             currentVideoIndex = index
-            val nextFile = folderVideos[index]
-            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.fromFile(nextFile)))
-            exoPlayer.prepare()
+            loadVideo(exoPlayer, folderVideos[index])
             exoPlayer.play()
             zoomScale = 1f
             panOffset = Offset.Zero
@@ -266,6 +406,7 @@ fun VideoPlayerScreen(
     val currentRepeatMode by rememberUpdatedState(repeatMode)
     val currentIdx by rememberUpdatedState(currentVideoIndex)
     val currentFolderVideos by rememberUpdatedState(folderVideos)
+    val latestFile by rememberUpdatedState(currentFile)
 
     // Player event listener
     DisposableEffect(exoPlayer) {
@@ -305,17 +446,22 @@ fun VideoPlayerScreen(
         }
         exoPlayer.addListener(listener)
 
-        val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-
         onDispose {
             exoPlayer.removeListener(listener)
+            if (!isClosing) saveResumePosition(latestFile) // closePlayer() already saved it
             exoPlayer.release()
             activity?.requestedOrientation = originalOrientation
-            // Restore window brightness
+            // Restore window brightness & system bars
             activity?.let { act ->
                 val layoutParams = act.window.attributes
                 layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                 act.window.attributes = layoutParams
+                val insetsController = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+                val decor = act.window.decorView
+                decor.post { androidx.core.view.ViewCompat.requestApplyInsets(decor) }
+                decor.postDelayed({ androidx.core.view.ViewCompat.requestApplyInsets(decor) }, 150)
             }
         }
     }
@@ -324,6 +470,8 @@ fun VideoPlayerScreen(
     DisposableEffect(lifecycleOwner, backgroundAudioEnabled) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
+                // The process may be killed while in the background; keep the spot safe
+                saveResumePosition(latestFile)
                 val inPip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     activity?.isInPictureInPictureMode == true
                 } else false
@@ -339,19 +487,23 @@ fun VideoPlayerScreen(
     }
 
     // Periodic position updater
+    // Polls only while playing; when paused it syncs once and stops (seek handlers update it directly)
     LaunchedEffect(isPlaying, isSeeking) {
-        while (true) {
+        do {
             if (!isSeeking) {
                 currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L)
                 duration = exoPlayer.duration.coerceAtLeast(0L)
             }
             delay(300)
-        }
+        } while (isPlaying)
     }
 
-    // Auto-hide controls after 3.5s of inactivity when playing
+    // Auto-hide controls after 3.5s of inactivity when playing; the unlock button hides after 2.5s
     LaunchedEffect(showControls, isPlaying, isLocked, isFastForwarding) {
-        if (showControls && isPlaying && !isLocked && !isFastForwarding) {
+        if (showControls && isLocked) {
+            delay(2500)
+            showControls = false
+        } else if (showControls && isPlaying && !isFastForwarding) {
             delay(3500)
             showControls = false
         }
@@ -370,16 +522,18 @@ fun VideoPlayerScreen(
             volumeHud = null
         }
     }
-    LaunchedEffect(doubleTapSeekLeft) {
-        if (doubleTapSeekLeft) {
-            delay(650)
+    // Each streak tap restarts the window; once it lapses the streak ends and the badge hides
+    LaunchedEffect(seekStreakTick) {
+        if (seekStreakTick > 0) {
+            delay(800)
             doubleTapSeekLeft = false
+            doubleTapSeekRight = false
         }
     }
-    LaunchedEffect(doubleTapSeekRight) {
-        if (doubleTapSeekRight) {
-            delay(650)
-            doubleTapSeekRight = false
+    LaunchedEffect(resumedFrom) {
+        if (resumedFrom != null) {
+            delay(4000)
+            resumedFrom = null
         }
     }
 
@@ -401,7 +555,7 @@ fun VideoPlayerScreen(
             .clipToBounds()
     ) {
         // ─── 1. ExoPlayer Surface with Pinch-to-Zoom & Pan ───
-        AndroidView(
+        if (!isClosing) AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     this.player = exoPlayer
@@ -416,6 +570,8 @@ fun VideoPlayerScreen(
             update = { playerView ->
                 playerView.player = exoPlayer
                 playerView.resizeMode = aspectMode.resizeMode
+                // ExoPlayer doesn't hold the screen awake by itself; without this the display times out mid-video
+                playerView.keepScreenOn = isPlaying
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -433,13 +589,18 @@ fun VideoPlayerScreen(
             val screenHeight = constraints.maxHeight.toFloat()
 
             var dragStartX by remember { mutableFloatStateOf(0f) }
+            var dragAccumX by remember { mutableFloatStateOf(0f) }
             var dragAccumY by remember { mutableFloatStateOf(0f) }
+            var dragStartPosition by remember { mutableLongStateOf(0L) }
+            var dragStartBrightness by remember { mutableFloatStateOf(0f) }
+            var dragStartVolume by remember { mutableIntStateOf(0) }
+            var activeDragType by remember { mutableStateOf(DragGestureType.NONE) }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     // Pinch-to-zoom & 2-finger pan gesture
-                    .pointerInput(isLocked) {
+                    .pointerInput(isLocked, screenWidth, screenHeight) {
                         if (isLocked) return@pointerInput
                         awaitEachGesture {
                             do {
@@ -488,111 +649,172 @@ fun VideoPlayerScreen(
                         }
                     }
                     // Tap gestures: single tap (toggle controls), double tap (seek or reset zoom), press-and-hold (2.0x speed)
-                    .pointerInput(isLocked) {
+                    .pointerInput(isLocked, screenWidth, screenHeight) {
                         if (isLocked) {
                             detectTapGestures(
                                 onTap = { showControls = !showControls }
                             )
                         } else {
-                            var justFastForwarded = false
+                            // Hand-rolled instead of detectTapGestures, which delays every single tap by the
+                            // double-tap timeout (~300ms). Here a single tap toggles the controls at once; if a
+                            // second tap follows, that toggle is undone and the double-tap action runs instead.
+                            val doubleTapTimeout = viewConfiguration.doubleTapTimeoutMillis
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
 
-                            detectTapGestures(
-                                onPress = {
-                                    var speedActivated = false
-                                    val boostJob = coroutineScope.launch {
-                                        delay(350)
-                                        speedActivated = true
-                                        isFastForwarding = true
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        exoPlayer.setPlaybackSpeed(2.0f)
-                                    }
-                                    try {
-                                        tryAwaitRelease()
-                                    } finally {
-                                        boostJob.cancel()
-                                        if (speedActivated) {
-                                            isFastForwarding = false
-                                            exoPlayer.setPlaybackSpeed(playbackSpeed)
-                                            justFastForwarded = true
-                                        }
-                                    }
-                                },
-                                onTap = {
-                                    if (justFastForwarded) {
-                                        justFastForwarded = false
-                                    } else {
-                                        showControls = !showControls
-                                    }
-                                },
-                                onDoubleTap = { offset ->
-                                    if (zoomScale > 1.05f) {
-                                        // Quick reset zoom on double tap
+                                // Press-and-hold: 2x speed until release
+                                var speedActivated = false
+                                val boostJob = coroutineScope.launch {
+                                    delay(350)
+                                    speedActivated = true
+                                    isFastForwarding = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    exoPlayer.setPlaybackSpeed(2.0f)
+                                }
+                                val up = waitForUpOrCancellation()
+                                boostJob.cancel()
+                                if (speedActivated) {
+                                    isFastForwarding = false
+                                    exoPlayer.setPlaybackSpeed(playbackSpeed)
+                                    return@awaitEachGesture
+                                }
+                                // Null means a drag or pinch took the pointer over
+                                if (up == null) return@awaitEachGesture
+
+                                val tapX = down.position.x
+                                val side = when {
+                                    tapX < screenWidth * 0.35f -> -1
+                                    tapX > screenWidth * 0.65f -> 1
+                                    else -> 0
+                                }
+
+                                // Mid-streak: each tap on the same side seeks again, no double-tap needed
+                                val streakSide = if (doubleTapSeekRight) 1 else if (doubleTapSeekLeft) -1 else 0
+                                if (zoomScale <= 1.05f && side != 0 && side == streakSide) {
+                                    streakSeek(forward = side > 0)
+                                    return@awaitEachGesture
+                                }
+
+                                showControls = !showControls
+
+                                val secondDown = withTimeoutOrNull(doubleTapTimeout) { awaitFirstDown() }
+                                    ?: return@awaitEachGesture
+                                if (waitForUpOrCancellation() == null) return@awaitEachGesture
+
+                                // Double tap: undo the single-tap toggle, then act
+                                showControls = !showControls
+                                when {
+                                    zoomScale > 1.05f -> {
                                         zoomScale = 1f
                                         panOffset = Offset.Zero
-                                    } else {
-                                        val tapX = offset.x
-                                        if (tapX < screenWidth * 0.35f) {
-                                            // Seek back 10s
-                                            val newPos = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
-                                            exoPlayer.seekTo(newPos)
-                                            currentPosition = newPos
-                                            doubleTapSeekLeft = true
-                                        } else if (tapX > screenWidth * 0.65f) {
-                                            // Seek forward 10s
-                                            val newPos = (exoPlayer.currentPosition + 10000L).coerceAtMost(duration)
-                                            exoPlayer.seekTo(newPos)
-                                            currentPosition = newPos
-                                            doubleTapSeekRight = true
+                                    }
+                                    secondDown.position.x < screenWidth * 0.35f -> streakSeek(forward = false)
+                                    secondDown.position.x > screenWidth * 0.65f -> streakSeek(forward = true)
+                                    else -> togglePlayPause()
+                                }
+                            }
+                        }
+                    }
+                    // Drag Gestures: Horizontal scrub/seek (forward & backward), Left side vertical brightness, Right side vertical volume
+                    .pointerInput(isLocked, screenWidth, screenHeight) {
+                        if (isLocked) return@pointerInput
+                        // Swipes starting this close to the top/bottom edge belong to the system
+                        // (notification shade, gesture navigation), not to the player
+                        val systemEdgePx = 40.dp.toPx()
+                        // Dragging across this much of the screen height sweeps brightness/volume end to end
+                        val levelDragSpanPx = screenHeight * 0.6f
+
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                dismissSeekJob?.cancel()
+                                dragStartX = offset.x
+                                dragAccumX = 0f
+                                dragAccumY = 0f
+                                dragStartPosition = exoPlayer.currentPosition
+                                dragStartBrightness = currentBrightness
+                                dragStartVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                activeDragType = if (offset.y < systemEdgePx || offset.y > screenHeight - systemEdgePx) {
+                                    DragGestureType.IGNORED
+                                } else {
+                                    DragGestureType.NONE
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                if (activeDragType == DragGestureType.IGNORED) return@detectDragGestures
+                                dragAccumX += dragAmount.x
+                                dragAccumY -= dragAmount.y // Dragging up increases value
+
+                                if (activeDragType == DragGestureType.NONE) {
+                                    val totalAbsX = abs(dragAccumX)
+                                    val totalAbsY = abs(dragAccumY)
+                                    if (totalAbsX > 18f || totalAbsY > 18f) {
+                                        activeDragType = if (totalAbsX > totalAbsY) {
+                                            DragGestureType.SEEK
                                         } else {
-                                            // Middle double tap: toggle play/pause
-                                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                            if (dragStartX < (screenWidth / 2f)) DragGestureType.BRIGHTNESS else DragGestureType.VOLUME
                                         }
                                     }
                                 }
-                            )
-                        }
-                    }
-                    // Vertical Drag Gestures: Left side brightness, Right side volume
-                    .pointerInput(isLocked) {
-                        if (isLocked) return@pointerInput
 
-                        detectVerticalDragGestures(
-                            onDragStart = { offset ->
-                                dragStartX = offset.x
-                                dragAccumY = 0f
-                            },
-                            onVerticalDrag = { change, dragAmount ->
-                                change.consume()
-                                dragAccumY -= dragAmount // Dragging up increases value
-
-                                val isLeftSide = dragStartX < (screenWidth / 2f)
-                                val deltaFraction = dragAccumY / (screenHeight * 0.7f)
-
-                                if (isLeftSide) {
-                                    // Brightness Adjustment
-                                    val newBrightness = (currentBrightness + deltaFraction * 0.05f).coerceIn(0.01f, 1f)
-                                    currentBrightness = newBrightness
-                                    brightnessHud = newBrightness
-                                    activity?.let { act ->
-                                        val lp = act.window.attributes
-                                        lp.screenBrightness = newBrightness
-                                        act.window.attributes = lp
+                                when (activeDragType) {
+                                    DragGestureType.SEEK -> {
+                                        change.consume()
+                                        // Scrub window: screen width spans from 60s up to 10 mins (proportional to duration)
+                                        val scrubWindowMs = if (duration > 0) duration.coerceIn(60_000L, 600_000L) else 60_000L
+                                        val deltaMs = ((dragAccumX / screenWidth) * scrubWindowMs).toLong()
+                                        val targetPos = (dragStartPosition + deltaMs).coerceIn(0L, duration.coerceAtLeast(0L))
+                                        horizontalSeekData = HorizontalSeekData(
+                                            targetPosition = targetPos,
+                                            deltaMs = deltaMs
+                                        )
+                                        previewSeek(targetPos)
                                     }
-                                } else {
-                                    // Volume Adjustment
-                                    val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                    val volDelta = if (dragAccumY > 30f) 1 else if (dragAccumY < -30f) -1 else 0
-                                    if (volDelta != 0) {
-                                        dragAccumY = 0f
-                                        val newVol = (currentVol + volDelta).coerceIn(0, maxVolume)
-                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                    DragGestureType.BRIGHTNESS -> {
+                                        change.consume()
+                                        // Absolute from the drag's start point, so speed stays constant however long the drag is
+                                        val newBrightness = (dragStartBrightness + dragAccumY / levelDragSpanPx).coerceIn(0.01f, 1f)
+                                        currentBrightness = newBrightness
+                                        brightnessHud = newBrightness
+                                        activity?.let { act ->
+                                            val lp = act.window.attributes
+                                            lp.screenBrightness = newBrightness
+                                            act.window.attributes = lp
+                                        }
+                                    }
+                                    DragGestureType.VOLUME -> {
+                                        change.consume()
+                                        // Scaled to the device's step count, so a 15-step and a 160-step phone feel the same
+                                        val stepDelta = (dragAccumY / levelDragSpanPx * maxVolume).roundToInt()
+                                        val newVol = (dragStartVolume + stepDelta).coerceIn(0, maxVolume)
                                         volumeHud = newVol
+                                        if (newVol != audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) {
+                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+                                        }
                                         if (isMuted && newVol > 0) {
                                             isMuted = false
                                             exoPlayer.volume = 1f
                                         }
                                     }
+                                    DragGestureType.NONE, DragGestureType.IGNORED -> {
+                                        // Still determining direction (or a system edge swipe), do not consume
+                                    }
                                 }
+                            },
+                            onDragEnd = {
+                                if (activeDragType == DragGestureType.SEEK) {
+                                    horizontalSeekData?.let { seek -> commitSeek(seek.targetPosition) }
+                                    dismissSeekJob = coroutineScope.launch {
+                                        delay(500)
+                                        horizontalSeekData = null
+                                    }
+                                }
+                                activeDragType = DragGestureType.NONE
+                            },
+                            onDragCancel = {
+                                // Live preview already moved the playhead; put it back where the drag began
+                                if (activeDragType == DragGestureType.SEEK) commitSeek(dragStartPosition)
+                                horizontalSeekData = null
+                                activeDragType = DragGestureType.NONE
                             }
                         )
                     }
@@ -600,6 +822,88 @@ fun VideoPlayerScreen(
         }
 
         // ─── 3. Gesture HUD Badges ───
+
+        // Horizontal Slide Scrub / Seek HUD (Forward & Backward at Bottom)
+        AnimatedVisibility(
+            visible = horizontalSeekData != null,
+            enter = fadeIn(animationSpec = tween(150)) + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut(animationSpec = tween(200)) + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = if (showControls && !isLocked) 84.dp else 24.dp)
+        ) {
+            horizontalSeekData?.let { seek ->
+                val isForward = seek.deltaMs >= 0
+                val deltaSecs = abs(seek.deltaMs) / 1000L
+                val deltaSign = if (isForward) "+" else "-"
+                val deltaText = String.format(Locale.US, "%s%d:%02d", deltaSign, deltaSecs / 60, deltaSecs % 60)
+                val accentColor = if (isForward) Color(0xFF00E5FF) else Color(0xFFFF8A80)
+                val progressFraction = if (duration > 0) (seek.targetPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                ) {
+                    // Minimal translucent pill with subtle border (does not obstruct video)
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isForward) Icons.Default.FastForward else Icons.Default.FastRewind,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = deltaText,
+                                color = accentColor,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "·",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${formatDuration(seek.targetPosition)} / ${formatDuration(duration)}",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Sleek progress bar at bottom
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressFraction)
+                                .fillMaxHeight()
+                                .background(Color(0xFF00E5FF))
+                        )
+                    }
+                }
+            }
+        }
 
         // 2.0X SPEED HOLD HUD
         AnimatedVisibility(
@@ -759,13 +1063,13 @@ fun VideoPlayerScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Replay10,
-                        contentDescription = "Rewind 10s",
+                        imageVector = Icons.Default.FastRewind,
+                        contentDescription = "Rewind",
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
                     Text(
-                        text = "-10s",
+                        text = "-${seekStreakSeconds}s",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -791,17 +1095,59 @@ fun VideoPlayerScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Forward10,
-                        contentDescription = "Forward 10s",
+                        imageVector = Icons.Default.FastForward,
+                        contentDescription = "Forward",
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
                     Text(
-                        text = "+10s",
+                        text = "+${seekStreakSeconds}s",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+
+        // "Resumed from" pill with a Start over action
+        AnimatedVisibility(
+            visible = resumedFrom != null && !isLocked,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 }),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 72.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 16.dp, end = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Resumed from ${formatDuration(resumedFrom ?: 0L)}",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    TextButton(onClick = {
+                        commitSeek(0L)
+                        resumedFrom = null
+                    }) {
+                        Text("Start over", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
         }
@@ -900,7 +1246,7 @@ fun VideoPlayerScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = { closePlayer() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -1039,7 +1385,7 @@ fun VideoPlayerScreen(
                         // Play/Pause Main
                         FilledIconButton(
                             onClick = {
-                                if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                togglePlayPause()
                             },
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = Color.White.copy(alpha = 0.9f),
@@ -1119,10 +1465,10 @@ fun VideoPlayerScreen(
                             onValueChange = { pos ->
                                 isSeeking = true
                                 seekPosition = pos
+                                previewSeek(pos.toLong())
                             },
                             onValueChangeFinished = {
-                                exoPlayer.seekTo(seekPosition.toLong())
-                                currentPosition = seekPosition.toLong()
+                                commitSeek(seekPosition.toLong())
                                 isSeeking = false
                             },
                             valueRange = 0f..(duration.toFloat().coerceAtLeast(1f)),
@@ -1253,6 +1599,20 @@ fun VideoPlayerScreen(
                                     imageVector = orientationState.icon,
                                     contentDescription = orientationState.label,
                                     tint = Color.White
+                                )
+                            }
+
+                            // Fullscreen Toggle
+                            IconButton(onClick = {
+                                isFullscreen = !isFullscreen
+                                if (isFullscreen) {
+                                    showControls = false
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                                    tint = if (isFullscreen) Color(0xFF00E5FF) else Color.White
                                 )
                             }
                         }

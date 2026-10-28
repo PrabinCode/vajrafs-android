@@ -12,10 +12,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import java.io.File
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,12 +30,20 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.prabincode.vajrafs.util.findActivity
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -60,6 +72,20 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val view = LocalView.current
+
+    // Ensure status and navigation bars are always restored to normal insets on Home screen
+    LaunchedEffect(Unit) {
+        val window = view.context.findActivity()?.window
+        if (window != null) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
+            val decor = window.decorView
+            decor.post { androidx.core.view.ViewCompat.requestApplyInsets(decor) }
+            decor.postDelayed({ androidx.core.view.ViewCompat.requestApplyInsets(decor) }, 150)
+        }
+    }
 
     var itemToRename by remember { mutableStateOf<FileItem?>(null) }
     var itemForInfo by remember { mutableStateOf<FileItem?>(null) }
@@ -76,7 +102,7 @@ fun HomeScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.loadData()
+                viewModel.refreshIfNeeded()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -111,6 +137,7 @@ fun HomeScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
+                    windowInsets = safeStatusBarInsets(),
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Open Navigation Drawer")
@@ -242,50 +269,69 @@ fun HomeScreen(
                 )
             }
 
-            // Quick Security & Tools Hub
+            // Quick Security & Tools (All 4 in same line, saves vertical space)
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    QuickToolTile(
+                        title = "Safe Vault",
+                        icon = Icons.Default.Lock,
+                        iconColor = Color(0xFFEC407A),
+                        onClick = onNavigateToVault,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickToolTile(
+                        title = "Analyzer",
+                        icon = Icons.Default.PieChart,
+                        iconColor = Color(0xFF42A5F5),
+                        onClick = onNavigateToAnalyzer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickToolTile(
+                        title = "Trash Bin",
+                        icon = Icons.Outlined.Delete,
+                        iconColor = Color(0xFFFFA726),
+                        onClick = onNavigateToTrash,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickToolTile(
+                        title = "PC Transfer",
+                        icon = Icons.Default.Wifi,
+                        iconColor = Color(0xFF00838F),
+                        onClick = onNavigateToWifiShare,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Favourite Folders Section (Shown below tools container)
+            if (state.bookmarks.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Favourites",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                item {
+                    LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        HubCard(
-                            title = "Safe Vault",
-                            subtitle = "AES-256",
-                            icon = Icons.Default.Lock,
-                            iconColor = Color(0xFFEC407A),
-                            onClick = onNavigateToVault,
-                            modifier = Modifier.weight(1f)
-                        )
-                        HubCard(
-                            title = "Analyzer",
-                            subtitle = "Disk & Clean",
-                            icon = Icons.Default.PieChart,
-                            iconColor = Color(0xFF42A5F5),
-                            onClick = onNavigateToAnalyzer,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        HubCard(
-                            title = "Trash Bin",
-                            subtitle = "Soft Delete",
-                            icon = Icons.Outlined.Delete,
-                            iconColor = Color(0xFFFFA726),
-                            onClick = onNavigateToTrash,
-                            modifier = Modifier.weight(1f)
-                        )
-                        HubCard(
-                            title = "PC Transfer",
-                            subtitle = "Offline Wi-Fi",
-                            icon = Icons.Default.Wifi,
-                            iconColor = Color(0xFF006874),
-                            onClick = onNavigateToWifiShare,
-                            modifier = Modifier.weight(1f)
-                        )
+                        items(state.bookmarks, key = { it.path }) { bookmark ->
+                            FavouriteFolderCard(
+                                title = bookmark.title,
+                                path = bookmark.path,
+                                onOpen = { onNavigateToExplorer(bookmark.path, bookmark.title) },
+                                onRemove = { viewModel.removeBookmark(bookmark.path) }
+                            )
+                        }
                     }
                 }
             }
@@ -399,54 +445,149 @@ fun HomeScreen(
     }
 }
 
+// Tap opens; long-press offers removal, so a stray tap can't delete a favourite
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HubCard(
+private fun FavouriteFolderCard(
     title: String,
-    subtitle: String,
+    path: String,
+    onOpen: () -> Unit,
+    onRemove: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val exists = remember(path) { File(path).isDirectory }
+    val location = remember(path) { favouriteLocationLabel(path) }
+    val accent = Color(0xFFF59E0B)
+
+    Box {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            ),
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = { if (exists) onOpen() else menuExpanded = true },
+                    onLongClick = { menuExpanded = true }
+                )
+                .alpha(if (exists) 1f else 0.55f)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp, bottom = 10.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(accent.copy(alpha = 0.18f))
+                ) {
+                    Icon(
+                        imageVector = if (exists) Icons.Default.FolderSpecial else Icons.Default.FolderOff,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (exists) location else "Folder not found",
+                        fontSize = 11.sp,
+                        color = if (exists) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            if (exists) {
+                DropdownMenuItem(
+                    text = { Text("Open") },
+                    leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
+                    onClick = { menuExpanded = false; onOpen() }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Remove from favourites") },
+                leadingIcon = { Icon(Icons.Default.StarBorder, contentDescription = null) },
+                onClick = { menuExpanded = false; onRemove() }
+            )
+        }
+    }
+}
+
+// Where the folder lives, e.g. "Internal › DCIM" or "SD card › Movies", so the subtitle doesn't repeat the title
+private fun favouriteLocationLabel(path: String): String {
+    val internalRoot = Environment.getExternalStorageDirectory().absolutePath
+    val (rootLabel, relative) = when {
+        path == internalRoot || path.startsWith("$internalRoot/") -> "Internal" to path.removePrefix(internalRoot)
+        path.startsWith("/storage/") -> {
+            // /storage/XXXX-XXXX/... is a removable volume
+            val volumeRoot = path.split('/').take(3).joinToString("/")
+            "SD card" to path.removePrefix(volumeRoot)
+        }
+        else -> "Device" to path
+    }
+    val parent = relative.trim('/').substringBeforeLast('/', missingDelimiterValue = "")
+    return when {
+        relative.trim('/').isEmpty() -> "$rootLabel storage"
+        parent.isEmpty() -> rootLabel
+        else -> "$rootLabel › ${parent.substringAfterLast('/')}"
+    }
+}
+
+@Composable
+private fun QuickToolTile(
+    title: String,
     icon: ImageVector,
     iconColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        ),
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() }
+            .padding(vertical = 8.dp)
     ) {
-        Column(
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(iconColor.copy(alpha = 0.15f))
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(iconColor.copy(alpha = 0.15f))
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = iconColor,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = iconColor,
+                modifier = Modifier.size(24.dp)
             )
         }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

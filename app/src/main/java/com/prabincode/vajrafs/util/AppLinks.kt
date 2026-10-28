@@ -35,4 +35,30 @@ object AppLinks {
             context.startActivity(intent)
         } catch (_: Exception) {}
     }
+
+    /** Open Google Play Store listing for updates, reviews, and ratings. */
+    fun openPlayStore(context: Context) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}")).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            openInBrowser(context, "https://play.google.com/store/apps/details?id=${context.packageName}")
+        }
+    }
+
+    /** Share VajraFS app recommendation with friends. */
+    fun shareApp(context: Context) {
+        try {
+            val shareText = "VajraFS — Secure, private, 100% offline file explorer with encrypted vault for Android:\nhttps://play.google.com/store/apps/details?id=${context.packageName}"
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "VajraFS - Secure File Explorer")
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(intent, "Share VajraFS"))
+        } catch (_: Exception) {}
+    }
 }

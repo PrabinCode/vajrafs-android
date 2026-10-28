@@ -8,9 +8,11 @@
 package com.prabincode.vajrafs.data.repository
 
 import android.content.Context
+import android.media.MediaScannerConnection
 import com.prabincode.vajrafs.data.crypto.ShredderEngine
 import com.prabincode.vajrafs.data.local.dao.TrashDao
 import com.prabincode.vajrafs.data.local.entity.TrashEntity
+import com.prabincode.vajrafs.util.rescanFolderMedia
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +55,7 @@ class TrashRepository(
             )
 
             val id = trashDao.insertTrashItem(entity)
+            notifyMediaChange(file)
             Result.success(entity.copy(id = id))
         } catch (e: Exception) {
             Result.failure(e)
@@ -83,6 +86,7 @@ class TrashRepository(
             }
 
             trashDao.deleteById(trashEntity.id)
+            notifyMediaChange(targetFile)
             Result.success(targetFile)
         } catch (e: Exception) {
             Result.failure(e)
@@ -123,6 +127,21 @@ class TrashRepository(
             Result.success(true)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Tells the media scanner a file left or returned to [file]'s path, so galleries drop or show it.
+     * A trashed or restored `.nomedia` changes the visibility of its whole folder, so that gets rescanned.
+     */
+    private suspend fun notifyMediaChange(file: File) {
+        try {
+            MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
+        } catch (_: Exception) {
+            // Ignore scan notification errors
+        }
+        if (file.name == ".nomedia") {
+            file.parentFile?.let { rescanFolderMedia(context, it) }
         }
     }
 

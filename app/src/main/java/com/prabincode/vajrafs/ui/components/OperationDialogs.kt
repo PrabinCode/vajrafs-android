@@ -8,6 +8,7 @@
 package com.prabincode.vajrafs.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prabincode.vajrafs.data.model.FileItem
 import com.prabincode.vajrafs.data.model.OperationProgress
+import com.prabincode.vajrafs.util.fileNameError
 
 @Composable
 fun CreateFolderDialog(
@@ -32,7 +34,7 @@ fun CreateFolderDialog(
     onConfirm: (folderName: String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
-    var isError by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -42,22 +44,20 @@ fun CreateFolderDialog(
                 value = text,
                 onValueChange = {
                     text = it
-                    isError = false
+                    errorText = null
                 },
                 label = { Text("Folder Name") },
                 singleLine = true,
-                isError = isError,
+                isError = errorText != null,
+                supportingText = errorText?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (text.trim().isNotEmpty()) {
-                        onConfirm(text.trim())
-                    } else {
-                        isError = true
-                    }
+                    errorText = fileNameError(text)
+                    if (errorText == null) onConfirm(text.trim())
                 }
             ) {
                 Text("Create")
@@ -69,6 +69,190 @@ fun CreateFolderDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun CreateFileDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (fileName: String) -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    val quickExtensions = listOf(".txt", ".nomedia", ".md", ".json", ".log")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New File", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        errorText = null
+                    },
+                    label = { Text("File Name (e.g. notes.txt)") },
+                    singleLine = true,
+                    isError = errorText != null,
+                    supportingText = errorText?.let { { Text(it) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Quick Presets:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                // Wraps to a second line on narrow screens or large font sizes
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    quickExtensions.forEach { ext ->
+                        val isNomedia = ext == ".nomedia"
+                        val isSelected = if (isNomedia) text == ".nomedia" else text.endsWith(ext)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = when {
+                                isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                isNomedia -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (isNomedia) {
+                                        text = ".nomedia"
+                                    } else {
+                                        val base = if (text.isBlank() || text == ".nomedia") "untitled" else text.substringBeforeLast(".")
+                                        text = "$base$ext"
+                                    }
+                                    errorText = null
+                                }
+                        ) {
+                            Text(
+                                text = ext,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected || isNomedia) FontWeight.Bold else FontWeight.Medium,
+                                color = when {
+                                    isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    isNomedia -> MaterialTheme.colorScheme.onTertiaryContainer
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+                if (text == ".nomedia") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Tip: .nomedia hides photos & videos in this folder from gallery apps.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    errorText = fileNameError(text)
+                    if (errorText == null) onConfirm(text.trim())
+                }
+            ) {
+                Text("Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreateActionBottomSheet(
+    onDismiss: () -> Unit,
+    onCreateFolderClick: () -> Unit,
+    onCreateFileClick: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = "Create in this Folder",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            ListItem(
+                headlineContent = { Text("New Folder", fontWeight = FontWeight.SemiBold) },
+                supportingContent = { Text("Create a new subdirectory", fontSize = 12.sp) },
+                leadingContent = {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreateNewFolder,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        onDismiss()
+                        onCreateFolderClick()
+                    }
+            )
+
+            ListItem(
+                headlineContent = { Text("New File", fontWeight = FontWeight.SemiBold) },
+                supportingContent = { Text("Create a blank file (.txt, .md, .json, etc.)", fontSize = 12.sp) },
+                leadingContent = {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NoteAdd,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        onDismiss()
+                        onCreateFileClick()
+                    }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
 @Composable
 fun RenameDialog(
     currentName: String,
@@ -76,6 +260,7 @@ fun RenameDialog(
     onConfirm: (newName: String) -> Unit
 ) {
     var text by remember { mutableStateOf(currentName) }
+    var errorText by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -83,19 +268,25 @@ fun RenameDialog(
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = {
+                    text = it
+                    errorText = null
+                },
                 label = { Text("New Name") },
                 singleLine = true,
+                isError = errorText != null,
+                supportingText = errorText?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (text.trim().isNotEmpty() && text.trim() != currentName) {
-                        onConfirm(text.trim())
-                    } else {
+                    if (text.trim() == currentName) {
                         onDismiss()
+                    } else {
+                        errorText = fileNameError(text)
+                        if (errorText == null) onConfirm(text.trim())
                     }
                 }
             ) {

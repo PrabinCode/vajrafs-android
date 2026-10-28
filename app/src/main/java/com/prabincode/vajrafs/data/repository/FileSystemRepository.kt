@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import com.prabincode.vajrafs.util.fileNameError
 
 /**
  * Applies the "Show Hidden Files & Folders" and "Show .nomedia Files" preferences to any path,
@@ -349,6 +350,8 @@ class FileSystemRepository(private val context: Context) {
         }
     }
 
+    suspend fun rescanFolderMedia(dir: File) = com.prabincode.vajrafs.util.rescanFolderMedia(context, dir)
+
     suspend fun copyFile(
         source: File,
         destination: File,
@@ -431,7 +434,10 @@ class FileSystemRepository(private val context: Context) {
             val newName = newNames.getOrNull(index)
             if (!newName.isNullOrEmpty() && newName != item.name) {
                 val target = File(item.file.parentFile, newName)
-                if (target.exists()) {
+                val nameError = fileNameError(newName)
+                if (nameError != null) {
+                    errors.add("${item.name}: $nameError")
+                } else if (target.exists()) {
                     errors.add("${item.name}: Target already exists")
                 } else if (item.file.renameTo(target)) {
                     notifyMediaScanner(item.file.absolutePath)
@@ -526,6 +532,7 @@ class FileSystemRepository(private val context: Context) {
 
     suspend fun createFolder(parentPath: String, folderName: String): Result<File> = withContext(Dispatchers.IO) {
         try {
+            fileNameError(folderName)?.let { return@withContext Result.failure(IllegalArgumentException(it)) }
             val newFolder = File(parentPath, folderName)
             if (newFolder.exists()) {
                 return@withContext Result.failure(FileAlreadyExistsException(newFolder))
@@ -543,6 +550,7 @@ class FileSystemRepository(private val context: Context) {
 
     suspend fun createFile(parentPath: String, fileName: String): Result<File> = withContext(Dispatchers.IO) {
         try {
+            fileNameError(fileName)?.let { return@withContext Result.failure(IllegalArgumentException(it)) }
             val newFile = File(parentPath, fileName)
             if (newFile.exists()) {
                 return@withContext Result.failure(FileAlreadyExistsException(newFile))

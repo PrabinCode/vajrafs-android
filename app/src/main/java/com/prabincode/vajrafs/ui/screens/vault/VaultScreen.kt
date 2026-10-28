@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,6 +120,7 @@ fun VaultScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Encrypted Safe Vault", fontWeight = FontWeight.Bold)

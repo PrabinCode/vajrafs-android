@@ -99,7 +99,7 @@ fun OnboardingScreen(
             gradientColors = listOf(Color(0xFF0288D1), Color(0xFF01579B)),
             highlights = listOf(
                 "Instant categorized navigation (Media, Docs, APKs, Code)",
-                "Fast batch file operations, custom tags & bookmarks",
+                "Fast batch file operations, custom tags & favourites",
                 "Browse internal storage, SD cards and the system root (/)"
             )
         ),

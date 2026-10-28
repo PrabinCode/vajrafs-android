@@ -29,6 +29,7 @@ import com.prabincode.vajrafs.data.model.FileItem
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +43,7 @@ fun TrashScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = { Text("Recycle Bin", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {

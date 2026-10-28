@@ -8,11 +8,13 @@
 package com.prabincode.vajrafs.ui.screens.viewer
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.prabincode.vajrafs.util.ImmersiveMode
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import com.prabincode.vajrafs.util.formatFileSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,9 +62,18 @@ fun TextEditorScreen(
     var isTruncated by remember { mutableStateOf(false) }
 
     // Editor settings
+    var isFullscreen by remember { mutableStateOf(false) }
     var isEditMode by remember { mutableStateOf(false) } // Default to read-only for safe viewing
     var isWordWrap by remember { mutableStateOf(true) }
     var showLineNumbers by remember { mutableStateOf(true) }
+
+    // Safe Back handling when in fullscreen
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
+    }
+
+    // Temporary Immersive Full-Screen Mode (hides status bar & navigation bar)
+    ImmersiveMode(enabled = isFullscreen)
 
     // Search state
     var isSearchOpen by remember { mutableStateOf(false) }
@@ -126,8 +139,10 @@ fun TextEditorScreen(
 
     Scaffold(
         topBar = {
-            Column {
-                TopAppBar(
+            if (!isFullscreen) {
+                Column {
+                    TopAppBar(
+                        windowInsets = safeStatusBarInsets(),
                     title = {
                         Column {
                             Text(file.name, fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 16.sp)
@@ -210,6 +225,15 @@ fun TextEditorScreen(
                                     )
                                 }
                             }
+                        }
+
+                        // Fullscreen / Distraction-Free Toggle
+                        IconButton(onClick = { isFullscreen = !isFullscreen }) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Fullscreen Mode",
+                                tint = if (isFullscreen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 )
@@ -314,86 +338,119 @@ fun TextEditorScreen(
                     }
                 }
             }
-        },
+        }
+    },
         bottomBar = {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            if (!isFullscreen) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = if (isEditMode) "✏️ Edit Mode" else "🔒 Read-Only (Tap icon to edit)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isEditMode) "✏️ Edit Mode" else "🔒 Read-Only (Tap icon to edit)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                    Text(
-                        text = "${textFieldValue.text.length} characters",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        Text(
+                            text = "${textFieldValue.text.length} characters",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
-        if (!isLoaded) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(padding))
-        } else {
-            val textStyle = TextStyle(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(if (!isFullscreen) padding else PaddingValues(0.dp))
+        ) {
+            if (!isLoaded) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else {
+                val textStyle = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(verticalScroll)
-            ) {
-                // Left Line Numbers Gutter
-                if (showLineNumbers) {
-                    Text(
-                        text = lineNumbersString,
-                        style = textStyle.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                        ),
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
-                            .padding(horizontal = 10.dp, vertical = 12.dp)
-                    )
-                }
-
-                // Text Content Area
-                Box(
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .then(
-                            if (!isWordWrap) Modifier.horizontalScroll(horizontalScroll)
-                            else Modifier
-                        )
-                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                        .fillMaxSize()
+                        .verticalScroll(verticalScroll)
                 ) {
-                    BasicTextField(
-                        value = textFieldValue,
-                        onValueChange = {
-                            if (isEditMode) {
-                                textFieldValue = it
-                                hasUnsavedChanges = true
-                            }
-                        },
-                        readOnly = !isEditMode,
-                        textStyle = textStyle,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth()
+                    // Left Line Numbers Gutter
+                    if (showLineNumbers) {
+                        Text(
+                            text = lineNumbersString,
+                            style = textStyle.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+                                .padding(horizontal = 10.dp, vertical = 12.dp)
+                        )
+                    }
+
+                    // Text Content Area
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (!isWordWrap) Modifier.horizontalScroll(horizontalScroll)
+                                else Modifier
+                            )
+                            .padding(horizontal = 12.dp, vertical = 12.dp)
+                    ) {
+                        BasicTextField(
+                            value = textFieldValue,
+                            onValueChange = {
+                                if (isEditMode) {
+                                    textFieldValue = it
+                                    hasUnsavedChanges = true
+                                }
+                            },
+                            readOnly = !isEditMode,
+                            textStyle = textStyle,
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            // Floating Exit Fullscreen Button
+            AnimatedVisibility(
+                visible = isFullscreen,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(16.dp)
+            ) {
+                Surface(
+                    onClick = { isFullscreen = false },
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                    shape = CircleShape,
+                    shadowElevation = 6.dp
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FullscreenExit,
+                        contentDescription = "Exit Fullscreen",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(10.dp).size(22.dp)
                     )
                 }
             }

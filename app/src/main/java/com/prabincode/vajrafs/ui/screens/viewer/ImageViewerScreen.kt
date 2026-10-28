@@ -8,6 +8,7 @@
 package com.prabincode.vajrafs.ui.screens.viewer
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -38,6 +39,7 @@ import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.prabincode.vajrafs.util.ImmersiveMode
 import com.prabincode.vajrafs.util.formatFileSize
 import java.io.File
 import java.text.SimpleDateFormat
@@ -91,7 +93,17 @@ fun ImageViewerScreen(
 
     // UI state
     var showControls by remember { mutableStateOf(true) }
+    var isFullscreen by remember { mutableStateOf(false) }
     var showExifSheet by remember { mutableStateOf(false) }
+
+    // Safe Back handling when in fullscreen
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
+        showControls = true
+    }
+
+    // Temporary Immersive Full-Screen Mode (hides status bar & navigation bar)
+    ImmersiveMode(enabled = isFullscreen || !showControls)
 
     // Rotation state per page index
     val rotationAngles = remember { mutableStateMapOf<Int, Float>() }
@@ -219,6 +231,20 @@ fun ImageViewerScreen(
                     } catch (e: Exception) { }
                 }) {
                     Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                }
+
+                // Fullscreen Toggle Button
+                IconButton(onClick = {
+                    isFullscreen = !isFullscreen
+                    if (isFullscreen) {
+                        showControls = false
+                    }
+                }) {
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                        tint = if (isFullscreen) Color(0xFF00E5FF) else Color.White
+                    )
                 }
             }
         }

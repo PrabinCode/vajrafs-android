@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.prabincode.vajrafs.data.crypto.ShredderEngine
 import com.prabincode.vajrafs.data.model.FileItem
 import com.prabincode.vajrafs.data.repository.DuplicateDetector
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import com.prabincode.vajrafs.data.repository.DuplicateGroup
 import com.prabincode.vajrafs.data.repository.DuplicateScanResult
 import com.prabincode.vajrafs.data.repository.TrashRepository
@@ -94,6 +95,7 @@ fun DuplicateCleanerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = { Text("Duplicate Cleaner", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {

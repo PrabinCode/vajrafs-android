@@ -33,6 +33,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -73,6 +74,7 @@ fun WifiShareScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = { Text("PC / Wi-Fi Transfer", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {

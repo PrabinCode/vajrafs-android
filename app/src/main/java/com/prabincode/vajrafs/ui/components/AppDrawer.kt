@@ -147,7 +147,7 @@ fun AppDrawerContent(
             if (bookmarks.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(6.dp))
-                    DrawerSectionHeader(title = "Favorites & Bookmarks")
+                    DrawerSectionHeader(title = "Favourites")
                 }
 
                 items(bookmarks, key = { it.path }) { bookmark ->
@@ -169,7 +169,7 @@ fun AppDrawerContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Remove bookmark",
+                                    contentDescription = "Remove from favourites",
                                     modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

@@ -68,6 +68,9 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         AutoLockManager.onAppForegrounded(this)
+        window.decorView.post {
+            androidx.core.view.ViewCompat.requestApplyInsets(window.decorView)
+        }
     }
 
     override fun onPause() {

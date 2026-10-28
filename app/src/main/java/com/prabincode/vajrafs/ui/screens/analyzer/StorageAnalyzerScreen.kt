@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prabincode.vajrafs.data.model.FileItem
 import com.prabincode.vajrafs.ui.components.FileListItem
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +50,7 @@ fun StorageAnalyzerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = { Text("Storage Analyzer", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {

@@ -7,7 +7,11 @@
  */
 package com.prabincode.vajrafs.ui.screens.home
 
+import android.database.ContentObserver
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.prabincode.vajrafs.VajraApp
@@ -25,6 +29,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,7 +60,30 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    @Volatile
+    private var hasInitialScanCompleted = false
+    private var loadJob: Job? = null
+
+    // Set whenever MediaStore reports a change (our own file ops, camera, downloads, Wi-Fi uploads...),
+    // so returning to Home only rescans when something actually changed
+    @Volatile
+    private var mediaChangedSinceScan = false
+
+    private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            mediaChangedSinceScan = true
+        }
+    }
+
     init {
+        try {
+            VajraApp.instance.contentResolver.registerContentObserver(
+                MediaStore.Files.getContentUri("external"),
+                true,
+                mediaObserver
+            )
+        } catch (_: Exception) {}
+        loadData()
         viewModelScope.launch {
             bookmarkRepository.getAllBookmarks().collectLatest { bms ->
                 _uiState.value = _uiState.value.copy(bookmarks = bms)
@@ -70,78 +98,119 @@ class HomeViewModel(
         }
     }
 
-    fun loadData(): Job = viewModelScope.launch {
-        _uiState.value = _uiState.value.copy(isLoading = true)
-        try {
-            withContext(Dispatchers.IO) {
-                val isStorageManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    Environment.isExternalStorageManager()
-                } else {
-                    true
-                }
+    override fun onCleared() {
+        VajraApp.instance.contentResolver.unregisterContentObserver(mediaObserver)
+        super.onCleared()
+    }
 
-                val volumes = fileSystemRepository.getStorageVolumes()
+    /**
+     * Called when Home resumes. Runs the full scan until one has succeeded; after that the cached
+     * data stays on screen and a silent background rescan runs only if files changed meanwhile.
+     */
+    fun refreshIfNeeded() {
+        // A scan is already running (e.g. the one started in init on cold start); don't restart it
+        if (loadJob?.isActive == true) return
+        val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+        if (!hasInitialScanCompleted || (!_uiState.value.permissionGranted && hasPermission)) {
+            loadData()
+        } else if (mediaChangedSinceScan) {
+            loadData(silent = true)
+        }
+    }
 
-                val recents = mutableListOf<FileItem>()
-                val visibility = fileSystemRepository.createVisibilityFilter()
-                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
-                val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                val moviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-                val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+    /** Rescans storage and recent files. A [silent] scan keeps the current data visible and skips the loading state. */
+    fun loadData(silent: Boolean = false): Job {
+        loadJob?.cancel()
+        // Cleared before scanning, so changes that land mid-scan still trigger the next refresh
+        mediaChangedSinceScan = false
+        val job = viewModelScope.launch {
+            if (!silent) _uiState.value = _uiState.value.copy(isLoading = true)
+            try {
+                withContext(Dispatchers.IO) {
+                    val isStorageManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        Environment.isExternalStorageManager()
+                    } else {
+                        true
+                    }
 
-                fun collectRecent(dir: File) {
-                    try {
-                        if (dir.exists()) {
-                            dir.walkTopDown().maxDepth(3).filter { it.isFile && visibility.isVisible(it) }.forEach {
-                                recents.add(FileItem.fromFile(it))
+                    val volumes = fileSystemRepository.getStorageVolumes()
+
+                    val recents = mutableListOf<FileItem>()
+                    val visibility = fileSystemRepository.createVisibilityFilter()
+                    val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    val dcimDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
+                    val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                    val moviesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+                    val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+
+                    fun collectRecent(dir: File) {
+                        try {
+                            if (dir.exists()) {
+                                dir.walkTopDown().maxDepth(3).filter { it.isFile && visibility.isVisible(it) }.forEach {
+                                    recents.add(FileItem.fromFile(it))
+                                }
                             }
-                        }
-                    } catch (_: Exception) {}
-                }
+                        } catch (_: Exception) {}
+                    }
 
-                collectRecent(downloadDir)
-                collectRecent(dcimDir)
-                collectRecent(docsDir)
-                collectRecent(moviesDir)
-                collectRecent(picturesDir)
+                    collectRecent(downloadDir)
+                    collectRecent(dcimDir)
+                    collectRecent(docsDir)
+                    collectRecent(moviesDir)
+                    collectRecent(picturesDir)
 
-                // Query Android MediaStore for recent videos and images across all apps
-                try {
-                    val cr = VajraApp.instance.contentResolver
-                    val projection = arrayOf(android.provider.MediaStore.MediaColumns.DATA, android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
-                    val queryUri = android.provider.MediaStore.Files.getContentUri("external")
-                    val selection = "(${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO} OR ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE})"
-                    val sortOrder = "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+                    // Query Android MediaStore for recent videos and images across all apps
+                    try {
+                        val cr = VajraApp.instance.contentResolver
+                        val projection = arrayOf(android.provider.MediaStore.MediaColumns.DATA, android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+                        val queryUri = android.provider.MediaStore.Files.getContentUri("external")
+                        val selection = "(${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO} OR ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} = ${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE})"
+                        val sortOrder = "${android.provider.MediaStore.MediaColumns.DATE_MODIFIED} DESC"
 
-                    cr.query(queryUri, projection, selection, null, sortOrder)?.use { cursor ->
-                        val dataIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATA)
-                        var count = 0
-                        while (cursor.moveToNext() && count < 30) {
-                            val path = cursor.getString(dataIdx)
-                            if (!path.isNullOrEmpty()) {
-                                val f = File(path)
-                                if (f.exists() && f.isFile && visibility.isVisible(f)) {
-                                    recents.add(FileItem.fromFile(f))
-                                    count++
+                        cr.query(queryUri, projection, selection, null, sortOrder)?.use { cursor ->
+                            val dataIdx = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATA)
+                            var count = 0
+                            while (cursor.moveToNext() && count < 30) {
+                                val path = cursor.getString(dataIdx)
+                                if (!path.isNullOrEmpty()) {
+                                    val f = File(path)
+                                    if (f.exists() && f.isFile && visibility.isVisible(f)) {
+                                        recents.add(FileItem.fromFile(f))
+                                        count++
+                                    }
                                 }
                             }
                         }
+                    } catch (_: Exception) {}
+
+                    val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(25)
+
+                    // A newer scan replaced this one; drop these stale results
+                    ensureActive()
+
+                    _uiState.value = _uiState.value.copy(
+                        storageVolumes = volumes,
+                        recentFiles = sortedRecents,
+                        permissionGranted = isStorageManager
+                    )
+                    if (isStorageManager) {
+                        hasInitialScanCompleted = true
                     }
-                } catch (_: Exception) {}
-
-                val sortedRecents = recents.distinctBy { it.path }.sortedByDescending { it.lastModified }.take(25)
-
-                _uiState.value = _uiState.value.copy(
-                    storageVolumes = volumes,
-                    recentFiles = sortedRecents,
-                    permissionGranted = isStorageManager
-                )
+                }
+            } catch (_: Exception) {
+            } finally {
+                // Only the latest scan may clear the spinner; a cancelled one finishing late must not
+                if (loadJob === coroutineContext[Job]) {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                }
             }
-        } catch (_: Exception) {
-        } finally {
-            _uiState.value = _uiState.value.copy(isLoading = false)
         }
+        loadJob = job
+        return job
     }
 
     fun deleteFile(item: FileItem, shred: Boolean) {
@@ -194,7 +263,7 @@ class HomeViewModel(
     fun removeBookmark(path: String) {
         viewModelScope.launch {
             bookmarkRepository.removeBookmark(path)
-            _uiState.value = _uiState.value.copy(toastMessage = "Bookmark removed")
+            _uiState.value = _uiState.value.copy(toastMessage = "Removed from favourites")
         }
     }
 

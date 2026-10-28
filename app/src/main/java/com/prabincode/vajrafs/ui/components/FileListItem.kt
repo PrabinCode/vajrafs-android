@@ -47,6 +47,8 @@ fun FileListItem(
     onOpenWithClick: () -> Unit = {},
     onTagClick: () -> Unit = {},
     onOpenFileLocation: (() -> Unit)? = null,
+    isBookmarked: Boolean = false,
+    onBookmarkClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -155,6 +157,12 @@ fun FileListItem(
                             text = { Text("Assign Color Tag") },
                             onClick = { menuExpanded = false; onTagClick() }
                         )
+                        if (item.isDirectory && onBookmarkClick != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (isBookmarked) "Remove from Favourites" else "Add to Favourites") },
+                                onClick = { menuExpanded = false; onBookmarkClick() }
+                            )
+                        }
                         onOpenFileLocation?.let { openLocation ->
                             DropdownMenuItem(
                                 text = { Text("Open file location") },

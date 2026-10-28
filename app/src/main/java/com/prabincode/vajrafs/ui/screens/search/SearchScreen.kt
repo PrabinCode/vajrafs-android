@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.prabincode.vajrafs.data.model.FileItem
 import com.prabincode.vajrafs.ui.components.*
+import com.prabincode.vajrafs.util.safeStatusBarInsets
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +50,7 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = safeStatusBarInsets(),
                 title = {
                     OutlinedTextField(
                         value = state.query,

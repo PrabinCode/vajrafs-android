@@ -1,0 +1,7 @@
+VajraFS 2.2.0
+- Video player: brightness, volume and seek gestures, live scrub preview, resume where you left off, stacking double-tap seek, faster exit
+- Fullscreen mode in video, image, PDF and text viewers
+- Favourite folders on Home, with long-press to remove
+- New File dialog with a 1-tap .nomedia preset; gallery updates right away
+- Faster Home screen that refreshes quietly when files change
+- Safer file names and fixed status bar overlap on some phones
