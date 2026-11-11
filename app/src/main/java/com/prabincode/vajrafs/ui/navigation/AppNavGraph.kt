@@ -58,11 +58,41 @@ import androidx.compose.ui.text.font.FontWeight
 import com.prabincode.vajrafs.data.archive.ArchiveEngine
 import com.prabincode.vajrafs.ui.components.ExtractArchiveDialog
 import android.widget.Toast
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavBackStackEntry
 import com.prabincode.vajrafs.util.ExternalFileResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * Allows a navigation action only while [callerEntryId] is still the active destination and
+ * in [Lifecycle.State.RESUMED], preventing stale clicks on exiting screens during transitions.
+ */
+internal fun canNavigateFrom(
+    currentEntryId: String?,
+    callerEntryId: String,
+    callerLifecycleState: Lifecycle.State
+): Boolean {
+    return currentEntryId == callerEntryId && callerLifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+}
+
+/**
+ * Allows popping only when [canNavigateFrom] holds and at least one previous destination remains,
+ * so rapid back taps never pop the root Home destination off NavHost.
+ */
+internal fun canPopBackStack(
+    currentEntryId: String?,
+    callerEntryId: String,
+    callerLifecycleState: Lifecycle.State,
+    hasPreviousEntry: Boolean
+): Boolean {
+    return hasPreviousEntry && canNavigateFrom(currentEntryId, callerEntryId, callerLifecycleState)
+}
 
 @Composable
 fun AppNavGraph(
@@ -209,17 +239,55 @@ fun AppNavGraph(
         onIntentHandled()
     }
 
+    fun canActFrom(entry: NavBackStackEntry): Boolean {
+        return canNavigateFrom(
+            currentEntryId = navController.currentBackStackEntry?.id,
+            callerEntryId = entry.id,
+            callerLifecycleState = entry.lifecycle.currentState
+        )
+    }
+
+    fun safePopBackStack(fromEntry: NavBackStackEntry) {
+        val canPop = canPopBackStack(
+            currentEntryId = navController.currentBackStackEntry?.id,
+            callerEntryId = fromEntry.id,
+            callerLifecycleState = fromEntry.lifecycle.currentState,
+            hasPreviousEntry = navController.previousBackStackEntry != null
+        )
+        if (canPop) {
+            navController.popBackStack()
+        }
+    }
+
+    fun safeNavigate(fromEntry: NavBackStackEntry, route: String) {
+        if (canActFrom(fromEntry)) {
+            navController.navigate(route)
+        }
+    }
+
+    fun safeOpenFile(filePath: String, fromEntry: NavBackStackEntry) {
+        if (canActFrom(fromEntry)) {
+            openFile(filePath)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
-            startDestination = startDestination
+            startDestination = startDestination,
+            // Short exit transitions prevent stale taps from hitting an exiting top bar over Home
+            enterTransition = { fadeIn(animationSpec = tween(180)) },
+            exitTransition = { fadeOut(animationSpec = tween(150)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(180)) },
+            popExitTransition = { fadeOut(animationSpec = tween(150)) }
         ) {
-            composable(Screen.Onboarding.route) {
+            composable(Screen.Onboarding.route) { backStackEntry ->
                 OnboardingScreen(
                     onFinish = {
+                        if (!canActFrom(backStackEntry)) return@OnboardingScreen
                         prefs.edit().putBoolean("onboarding_completed", true).apply()
                         if (navController.previousBackStackEntry != null) {
-                            navController.popBackStack()
+                            safePopBackStack(backStackEntry)
                         } else {
                             navController.navigate(Screen.Home.route) {
                                 popUpTo(Screen.Onboarding.route) { inclusive = true }
@@ -229,7 +297,7 @@ fun AppNavGraph(
                 )
             }
 
-            composable(Screen.Home.route) {
+            composable(Screen.Home.route) { backStackEntry ->
                 val homeVm: HomeViewModel = viewModel(
                     factory = ViewModelFactory {
                         HomeViewModel(
@@ -242,18 +310,18 @@ fun AppNavGraph(
                 HomeScreen(
                     viewModel = homeVm,
                     onNavigateToExplorer = { path, title ->
-                        navController.navigate(Screen.Explorer.createRoute(path = path, title = title))
+                        safeNavigate(backStackEntry, Screen.Explorer.createRoute(path = path, title = title))
                     },
                     onNavigateToCategory = { type ->
-                        navController.navigate(Screen.Explorer.createRoute(category = type.name))
+                        safeNavigate(backStackEntry, Screen.Explorer.createRoute(category = type.name))
                     },
-                    onNavigateToVault = { navController.navigate(Screen.Vault.route) },
-                    onNavigateToAnalyzer = { navController.navigate(Screen.Analyzer.route) },
-                    onNavigateToTrash = { navController.navigate(Screen.Trash.route) },
-                    onNavigateToSearch = { navController.navigate(Screen.Search.route) },
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
-                    onOpenFile = { openFile(it) }
+                    onNavigateToVault = { safeNavigate(backStackEntry, Screen.Vault.route) },
+                    onNavigateToAnalyzer = { safeNavigate(backStackEntry, Screen.Analyzer.route) },
+                    onNavigateToTrash = { safeNavigate(backStackEntry, Screen.Trash.route) },
+                    onNavigateToSearch = { safeNavigate(backStackEntry, Screen.Search.route) },
+                    onNavigateToSettings = { safeNavigate(backStackEntry, Screen.Settings.route) },
+                    onNavigateToWifiShare = { safeNavigate(backStackEntry, Screen.WifiShare.route) },
+                    onOpenFile = { safeOpenFile(it, backStackEntry) }
                 )
             }
 
@@ -297,18 +365,19 @@ fun AppNavGraph(
                     categoryName = category.ifEmpty { null },
                     highlightPath = highlight.ifEmpty { null },
                     viewModel = explorerVm,
-                    onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) },
+                    onNavigateBack = { safePopBackStack(backStackEntry) },
+                    onOpenFile = { safeOpenFile(it, backStackEntry) },
                     onNavigateToCategory = { type ->
-                        navController.navigate(Screen.Explorer.createRoute(category = type.name))
+                        safeNavigate(backStackEntry, Screen.Explorer.createRoute(category = type.name))
                     },
-                    onNavigateToVault = { navController.navigate(Screen.Vault.route) },
-                    onNavigateToAnalyzer = { navController.navigate(Screen.Analyzer.route) },
-                    onNavigateToTrash = { navController.navigate(Screen.Trash.route) },
-                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateToVault = { safeNavigate(backStackEntry, Screen.Vault.route) },
+                    onNavigateToAnalyzer = { safeNavigate(backStackEntry, Screen.Analyzer.route) },
+                    onNavigateToTrash = { safeNavigate(backStackEntry, Screen.Trash.route) },
+                    onNavigateToWifiShare = { safeNavigate(backStackEntry, Screen.WifiShare.route) },
+                    onNavigateToSettings = { safeNavigate(backStackEntry, Screen.Settings.route) },
                     onNavigateToFolder = { folderPath, folderTitle, highlightFile ->
-                        navController.navigate(
+                        safeNavigate(
+                            backStackEntry,
                             Screen.Explorer.createRoute(
                                 path = folderPath,
                                 title = folderTitle,
@@ -319,40 +388,40 @@ fun AppNavGraph(
                 )
             }
 
-            composable(Screen.Vault.route) {
+            composable(Screen.Vault.route) { backStackEntry ->
                 val vaultVm: VaultViewModel = viewModel(
                     factory = ViewModelFactory { VaultViewModel(app.vaultRepository) }
                 )
                 VaultScreen(
                     viewModel = vaultVm,
-                    onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) }
+                    onNavigateBack = { safePopBackStack(backStackEntry) },
+                    onOpenFile = { safeOpenFile(it, backStackEntry) }
                 )
             }
 
-            composable(Screen.Analyzer.route) {
+            composable(Screen.Analyzer.route) { backStackEntry ->
                 val analyzerVm: StorageAnalyzerViewModel = viewModel(
                     factory = ViewModelFactory { StorageAnalyzerViewModel(app.storageAnalyzerRepository) }
                 )
                 StorageAnalyzerScreen(
                     viewModel = analyzerVm,
-                    onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) },
-                    onLaunchDuplicateCleaner = { navController.navigate(Screen.DuplicateCleaner.route) }
+                    onNavigateBack = { safePopBackStack(backStackEntry) },
+                    onOpenFile = { safeOpenFile(it, backStackEntry) },
+                    onLaunchDuplicateCleaner = { safeNavigate(backStackEntry, Screen.DuplicateCleaner.route) }
                 )
             }
 
-            composable(Screen.Trash.route) {
+            composable(Screen.Trash.route) { backStackEntry ->
                 val trashVm: TrashViewModel = viewModel(
                     factory = ViewModelFactory { TrashViewModel(app.trashRepository) }
                 )
                 TrashScreen(
                     viewModel = trashVm,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
-            composable(Screen.Search.route) {
+            composable(Screen.Search.route) { backStackEntry ->
                 val searchVm: SearchViewModel = viewModel(
                     factory = ViewModelFactory {
                         SearchViewModel(
@@ -364,10 +433,11 @@ fun AppNavGraph(
                 )
                 SearchScreen(
                     viewModel = searchVm,
-                    onNavigateBack = { navController.popBackStack() },
-                    onOpenFile = { openFile(it) },
+                    onNavigateBack = { safePopBackStack(backStackEntry) },
+                    onOpenFile = { safeOpenFile(it, backStackEntry) },
                     onNavigateToFolder = { folderPath, folderTitle, highlightFile ->
-                        navController.navigate(
+                        safeNavigate(
+                            backStackEntry,
                             Screen.Explorer.createRoute(
                                 path = folderPath,
                                 title = folderTitle,
@@ -378,26 +448,26 @@ fun AppNavGraph(
                 )
             }
 
-            composable(Screen.Settings.route) {
+            composable(Screen.Settings.route) { backStackEntry ->
                 SettingsScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToPinSetup = { navController.navigate(Screen.PinSetup.route) },
-                    onNavigateToWifiShare = { navController.navigate(Screen.WifiShare.route) },
-                    onNavigateToOnboarding = { navController.navigate(Screen.Onboarding.route) }
+                    onNavigateBack = { safePopBackStack(backStackEntry) },
+                    onNavigateToPinSetup = { safeNavigate(backStackEntry, Screen.PinSetup.route) },
+                    onNavigateToWifiShare = { safeNavigate(backStackEntry, Screen.WifiShare.route) },
+                    onNavigateToOnboarding = { safeNavigate(backStackEntry, Screen.Onboarding.route) }
                 )
             }
 
-            composable(Screen.WifiShare.route) {
+            composable(Screen.WifiShare.route) { backStackEntry ->
                 WifiShareScreen(
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
-            composable(Screen.PinSetup.route) {
+            composable(Screen.PinSetup.route) { backStackEntry ->
                 PinLockScreen(
                     mode = PinMode.SETUP,
-                    onSuccess = { navController.popBackStack() },
-                    onCancel = { navController.popBackStack() }
+                    onSuccess = { safePopBackStack(backStackEntry) },
+                    onCancel = { safePopBackStack(backStackEntry) }
                 )
             }
 
@@ -420,7 +490,7 @@ fun AppNavGraph(
                 }
                 TextEditorScreen(
                     filePath = path,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
@@ -443,7 +513,7 @@ fun AppNavGraph(
                 }
                 PdfViewerScreen(
                     filePath = path,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
@@ -466,7 +536,7 @@ fun AppNavGraph(
                 }
                 ImageViewerScreen(
                     filePath = path,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
@@ -489,14 +559,14 @@ fun AppNavGraph(
                 }
                 com.prabincode.vajrafs.ui.screens.viewer.VideoPlayerScreen(
                     filePath = path,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
 
-            composable(Screen.DuplicateCleaner.route) {
+            composable(Screen.DuplicateCleaner.route) { backStackEntry ->
                 com.prabincode.vajrafs.ui.screens.analyzer.DuplicateCleanerScreen(
                     trashRepository = app.trashRepository,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { safePopBackStack(backStackEntry) }
                 )
             }
         }

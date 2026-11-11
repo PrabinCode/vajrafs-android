@@ -7,6 +7,7 @@
  */
 package com.prabincode.vajrafs.ui.components
 
+import android.os.Environment
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,16 +22,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.File
+import com.prabincode.vajrafs.data.model.StorageVolumeInfo
 
 @Composable
 fun BreadcrumbBar(
     currentPath: String,
     onNavigateToPath: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    storageVolumes: List<StorageVolumeInfo> = emptyList(),
+    primaryStoragePath: String = Environment.getExternalStorageDirectory().absolutePath
 ) {
     val scrollState = rememberScrollState()
-    val segments = parsePathSegments(currentPath)
+    val segments = parsePathSegments(
+        path = currentPath,
+        storageVolumes = storageVolumes,
+        primaryStoragePath = primaryStoragePath
+    )
 
     LaunchedEffect(currentPath) {
         scrollState.animateScrollTo(scrollState.maxValue)
@@ -90,24 +97,54 @@ fun BreadcrumbBar(
 
 data class PathSegment(val name: String, val path: String)
 
-private fun parsePathSegments(path: String): List<PathSegment> {
-    if (path.isEmpty() || path == "/") return listOf(PathSegment("Internal Storage", "/"))
-    val parts = path.split("/").filter { it.isNotEmpty() }
-    val segments = mutableListOf<PathSegment>()
+/**
+ * Splits [path] into navigable segments anchored at the matching storage volume root so
+ * restricted Android mount points (`/storage`, `/storage/emulated`) are not exposed.
+ */
+internal fun parsePathSegments(
+    path: String,
+    storageVolumes: List<StorageVolumeInfo> = emptyList(),
+    primaryStoragePath: String = "/storage/emulated/0"
+): List<PathSegment> {
+    if (path.isEmpty() || path == "/") {
+        return listOf(PathSegment("System Root (/)", "/"))
+    }
 
-    var cumulativePath = ""
-    parts.forEachIndexed { index, part ->
-        cumulativePath += "/$part"
-        val displayName = if (index == 0 && part == "storage") {
-            "Storage"
-        } else if (part == "emulated") {
-            "Internal"
-        } else if (part == "0") {
-            "Main Storage"
-        } else {
-            part
+    val normalizedPrimary = primaryStoragePath.trimEnd('/')
+    val matchedVolume = storageVolumes
+        .filter { vol ->
+            val root = vol.path.trimEnd('/')
+            root.isNotEmpty() && root != "/" && (path == root || path.startsWith("$root/"))
         }
-        segments.add(PathSegment(displayName, cumulativePath))
+        .maxByOrNull { it.path.length }
+
+    val anchor = when {
+        matchedVolume != null -> PathSegment(matchedVolume.name, matchedVolume.path.trimEnd('/'))
+        normalizedPrimary.isNotEmpty() &&
+            (path == normalizedPrimary || path.startsWith("$normalizedPrimary/")) ->
+            PathSegment("Internal Storage", normalizedPrimary)
+        else -> null
+    }
+
+    if (anchor != null) {
+        val relative = path.removePrefix(anchor.path).trimStart('/')
+        val segments = mutableListOf(anchor)
+        if (relative.isNotEmpty()) {
+            var cumulative = anchor.path
+            relative.split('/').filter { it.isNotEmpty() }.forEach { part ->
+                cumulative = "$cumulative/$part"
+                segments.add(PathSegment(part, cumulative))
+            }
+        }
+        return segments
+    }
+
+    val parts = path.split('/').filter { it.isNotEmpty() }
+    val segments = mutableListOf(PathSegment("Root", "/"))
+    var cumulative = ""
+    parts.forEach { part ->
+        cumulative += "/$part"
+        segments.add(PathSegment(part, cumulative))
     }
     return segments
 }

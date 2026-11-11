@@ -184,7 +184,8 @@ class FileSystemRepository(private val context: Context) {
             return@withContext emptyList()
         }
 
-        val rawFiles = dir.listFiles() ?: return@withContext emptyList()
+        val rawFiles = dir.listFiles()
+            ?: throw SecurityException("Permission denied: Android restricts direct access to this folder")
 
         val prefs = context.getSharedPreferences("vajrafs_prefs", Context.MODE_PRIVATE)
         val showNomedia = prefs.getBoolean("show_nomedia_files", false)

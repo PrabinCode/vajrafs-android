@@ -1,0 +1,6 @@
+VajraFS 2.2.1
+- Fixed a blank white screen when pressing Back and quickly tapping the Home menu icon
+- Prevented rapid double-taps from accidentally exiting the Home screen or opening duplicate views
+- Anchored Explorer breadcrumbs to Internal Storage and SD Card roots, hiding restricted system paths
+- Pressing Back now closes an open navigation drawer before leaving the screen
+- Clearer message when opening restricted system folders

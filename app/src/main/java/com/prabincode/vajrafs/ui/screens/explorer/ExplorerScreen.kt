@@ -8,6 +8,7 @@
 package com.prabincode.vajrafs.ui.screens.explorer
 
 import android.content.Intent
+import android.os.Environment
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -41,6 +43,49 @@ import com.prabincode.vajrafs.util.safeStatusBarInsets
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Returns the parent directory path when navigating up within the active storage volume, or `null`
+ * when [currentPath] is at a volume root (or its parent is restricted) so Back exits Explorer.
+ */
+internal fun resolveUpNavigationPath(
+    currentPath: String,
+    volumePaths: List<String>,
+    primaryStoragePath: String = "/storage/emulated/0",
+    canReadDir: (String) -> Boolean = { path ->
+        val dir = File(path)
+        dir.exists() && dir.canRead()
+    }
+): String? {
+    val normalizedPath = if (currentPath == "/") "/" else currentPath.trimEnd('/')
+    val normalizedPrimary = primaryStoragePath.trimEnd('/')
+    val normalizedVolumes = volumePaths.map { if (it == "/") "/" else it.trimEnd('/') }
+
+    if (normalizedPath.isEmpty() || normalizedPath == "/" || normalizedPath == normalizedPrimary) {
+        return null
+    }
+    if (normalizedVolumes.any { it == normalizedPath }) {
+        return null
+    }
+
+    val parentPath = normalizedPath.substringBeforeLast('/', missingDelimiterValue = "")
+        .ifEmpty { if (normalizedPath.startsWith("/")) "/" else return null }
+
+    if (!canReadDir(parentPath)) {
+        return null
+    }
+
+    val nonRootVolumes = (listOf(normalizedPrimary) + normalizedVolumes.filter { it != "/" })
+        .filter { it.isNotEmpty() }
+    val belongsToVolume = nonRootVolumes.any { root ->
+        parentPath == root || parentPath.startsWith("$root/")
+    }
+    val allowsSystemRoot = normalizedVolumes.contains("/")
+    if (!belongsToVolume && !allowsSystemRoot) {
+        return null
+    }
+    return parentPath
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,18 +163,36 @@ fun ExplorerScreen(
         }
     }
 
-    BackHandler(enabled = true) {
+    val primaryStoragePath = remember { Environment.getExternalStorageDirectory().absolutePath }
+
+    fun handleBackNavigation() {
         if (state.isSelectionMode) {
             viewModel.clearSelection()
-        } else if (state.isCategoryMode) {
+            return
+        }
+        if (state.isCategoryMode) {
             onNavigateBack()
+            return
+        }
+        val parentPath = resolveUpNavigationPath(
+            currentPath = state.currentPath,
+            volumePaths = state.storageVolumes.map { it.path },
+            primaryStoragePath = primaryStoragePath
+        )
+        if (parentPath != null) {
+            val parentTitle = state.storageVolumes.find { it.path == parentPath }?.name
+                ?: File(parentPath).name.ifEmpty { "Root" }
+            viewModel.navigateTo(parentPath, parentTitle)
         } else {
-            val parent = File(state.currentPath).parentFile
-            if (parent != null && parent.exists() && parent.canRead() && state.currentPath != "/" && state.currentPath != "/storage/emulated/0") {
-                viewModel.navigateTo(parent.absolutePath, parent.name.ifEmpty { "Root" })
-            } else {
-                onNavigateBack()
-            }
+            onNavigateBack()
+        }
+    }
+
+    BackHandler(enabled = true) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            handleBackNavigation()
         }
     }
 
@@ -169,22 +232,7 @@ fun ExplorerScreen(
                         )
                     },
                     navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                if (state.isSelectionMode) {
-                                    viewModel.clearSelection()
-                                } else if (state.isCategoryMode) {
-                                    onNavigateBack()
-                                } else {
-                                    val parent = File(state.currentPath).parentFile
-                                    if (parent != null && parent.exists() && state.currentPath != "/" && state.currentPath != "/storage/emulated/0") {
-                                        viewModel.navigateTo(parent.absolutePath, parent.name.ifEmpty { "Root" })
-                                    } else {
-                                        onNavigateBack()
-                                    }
-                                }
-                            }
-                        ) {
+                        IconButton(onClick = { handleBackNavigation() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
@@ -324,6 +372,8 @@ fun ExplorerScreen(
             if (!state.isCategoryMode) {
                 BreadcrumbBar(
                     currentPath = state.currentPath,
+                    storageVolumes = state.storageVolumes,
+                    primaryStoragePath = primaryStoragePath,
                     onNavigateToPath = { viewModel.navigateTo(it) }
                 )
             }
@@ -356,19 +406,26 @@ fun ExplorerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp)
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val errorMsg = state.errorMessage
                             Icon(
-                                imageVector = Icons.Outlined.FolderOpen,
+                                imageVector = if (errorMsg != null) Icons.Outlined.Lock else Icons.Outlined.FolderOpen,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                 modifier = Modifier.size(64.dp)
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = if (state.isCategoryMode) "No ${state.title} files found" else "This folder is empty",
+                                text = when {
+                                    errorMsg != null -> errorMsg
+                                    state.isCategoryMode -> "No ${state.title} files found"
+                                    else -> "This folder is empty"
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }

@@ -108,7 +108,8 @@ class ExplorerViewModel(
     fun refresh(): Job = loadCurrent()
 
     fun navigateTo(path: String, title: String? = null) {
-        val cleanTitle = title ?: File(path).name.ifEmpty { if (path == "/") "System Root (/)" else "Storage" }
+        val volumeTitle = _uiState.value.storageVolumes.find { it.path == path }?.name
+        val cleanTitle = title ?: volumeTitle ?: File(path).name.ifEmpty { if (path == "/") "System Root (/)" else "Storage" }
         _uiState.value = _uiState.value.copy(
             currentPath = path,
             title = cleanTitle,
@@ -151,17 +152,17 @@ class ExplorerViewModel(
     }
 
     fun loadDirectory(path: String): Job {
-        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+        val bookmarked = _uiState.value.bookmarks.any { it.path == path }
+        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null, isBookmarked = bookmarked)
         return viewModelScope.launch {
             try {
                 val files = fileSystemRepository.getDirectoryContents(path, _uiState.value.sortOption)
-                val bookmarked = _uiState.value.bookmarks.any { it.path == path }
                 _uiState.value = _uiState.value.copy(
-                    files = files,
-                    isBookmarked = bookmarked
+                    files = files
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
+                    files = emptyList(),
                     errorMessage = e.message ?: "Failed to load directory"
                 )
             } finally {
