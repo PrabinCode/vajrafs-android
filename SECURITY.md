@@ -7,7 +7,7 @@
 1. **Network use is limited and user-started:**
    - The app declares `android.permission.INTERNET` for two features only:
      - **Wi-Fi PC Transfer**: a local HTTP server (port 8080) reachable only on your LAN, protected by a fresh 4-digit PIN each session. Traffic is plain HTTP, so use it on trusted networks.
-     - **Check for updates** (GitHub build only): fetches `version.json` from `pcshrestha.com.np` when you tap it. The Google Play build contains no update code.
+     - **Check for updates** (GitHub build only): checks GitHub Releases (`github.com` / `api.github.com`) and `pcshrestha.com.np` when you tap it. The Google Play build contains no update code.
    - No file content, metadata or usage data is ever sent to the developer.
 
 2. **Safe Vault cryptography (envelope encryption):**

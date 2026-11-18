@@ -10,6 +10,7 @@ package com.prabincode.vajrafs.util
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.core.content.pm.PackageInfoCompat
 
 /** Version info and browser links, shared by every distribution flavor. */
@@ -33,25 +34,29 @@ object AppLinks {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            Toast.makeText(context, "No browser app found to open link", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** Open Google Play Store listing for updates, reviews, and ratings. */
     fun openPlayStore(context: Context) {
+        val storePackageId = context.packageName.removeSuffix(".debug")
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}")).apply {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$storePackageId")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
         } catch (_: Exception) {
-            openInBrowser(context, "https://play.google.com/store/apps/details?id=${context.packageName}")
+            openInBrowser(context, "https://play.google.com/store/apps/details?id=$storePackageId")
         }
     }
 
     /** Share VajraFS app recommendation with friends. */
     fun shareApp(context: Context) {
+        val storePackageId = context.packageName.removeSuffix(".debug")
         try {
-            val shareText = "VajraFS — Secure, private, 100% offline file explorer with encrypted vault for Android:\nhttps://play.google.com/store/apps/details?id=${context.packageName}"
+            val shareText = "VajraFS — Secure, private, 100% offline file explorer with encrypted vault for Android:\nhttps://play.google.com/store/apps/details?id=$storePackageId"
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "VajraFS - Secure File Explorer")
