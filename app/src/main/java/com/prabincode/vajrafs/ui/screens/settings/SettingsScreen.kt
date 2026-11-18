@@ -34,7 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prabincode.vajrafs.data.crypto.PinCryptoHelper
+import com.prabincode.vajrafs.data.model.PrabinCodeBrand
 import com.prabincode.vajrafs.util.AppLinks
+import com.prabincode.vajrafs.util.Distribution
 import com.prabincode.vajrafs.util.formatFileSize
 import com.prabincode.vajrafs.util.safeStatusBarInsets
 import kotlinx.coroutines.Dispatchers
@@ -740,27 +742,29 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "GitHub",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        AppLinks.openInBrowser(context, "https://github.com/PrabinCode/vajrafs-android")
-                                    }
-                                )
-                                Text(
-                                    text = "•",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                if (Distribution.PROJECT_URL != PrabinCodeBrand.WEBSITE_URL) {
+                                    Text(
+                                        text = Distribution.PROJECT_LINK_LABEL,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable {
+                                            AppLinks.openInBrowser(context, Distribution.PROJECT_URL)
+                                        }
+                                    )
+                                    Text(
+                                        text = "•",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                                 Text(
                                     text = "Website",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.clickable {
-                                        AppLinks.openInBrowser(context, "https://pcshrestha.com.np/vajrafs")
+                                        AppLinks.openInBrowser(context, PrabinCodeBrand.WEBSITE_URL)
                                     }
                                 )
                             }

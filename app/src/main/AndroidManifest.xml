@@ -4,7 +4,7 @@
 
     <!-- PRIVACY POLICY & NETWORK TRANSPARENCY:
          INTERNET permission is used strictly for Local Wi-Fi PC File Transfer (embedded HTTP server)
-         and user-initiated GitHub version updates. The app contains ZERO third-party analytics,
+         and, in the GitHub build only, user-initiated update checks. The app contains ZERO third-party analytics,
          zero tracking SDKs, and zero cloud data collection. All file operations remain strictly on-device. -->
 
     <!-- Storage Permissions -->
@@ -29,8 +29,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- APK Installation (Optional for opening APK files) -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- REQUEST_INSTALL_PACKAGES is declared only in src/github/AndroidManifest.xml.
+         The Google Play build must never request it. -->
 
     <application
         android:name=".VajraApp"

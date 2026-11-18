@@ -17,6 +17,7 @@ import android.os.Environment
 import android.os.PowerManager
 import android.os.storage.StorageManager
 import com.prabincode.vajrafs.data.model.FileItem
+import com.prabincode.vajrafs.util.Distribution
 import java.io.*
 import java.net.*
 import java.util.Collections
@@ -472,7 +473,7 @@ object LocalWifiServer {
                         <button type="submit">Unlock Explorer</button>
                     </form>
                     <p style="color: #64748b; font-size: 0.75rem; margin-top: 24px; margin-bottom: 0;">
-                        Open-source project by <a href="https://github.com/PrabinCode/vajrafs-android" target="_blank" style="color: #38bdf8; text-decoration: none;">PrabinCode</a>
+                        Open-source project by <a href="${Distribution.PROJECT_URL}" target="_blank" style="color: #38bdf8; text-decoration: none;">PrabinCode</a>
                     </p>
                 </div>
             </body>
@@ -626,7 +627,7 @@ object LocalWifiServer {
                     </tbody>
                 </table>
                 <div style="text-align: center; margin-top: 2.5rem; margin-bottom: 2rem; color: #64748b; font-size: 0.85rem; border-top: 1px solid #334155; padding-top: 1.5rem;">
-                    <span>⚡ <strong>VajraFS</strong> — Open-source file manager developed by <a href="https://github.com/PrabinCode/vajrafs-android" target="_blank" style="color: #38bdf8; text-decoration: none; font-weight: 600;">PrabinCode</a></span>
+                    <span>⚡ <strong>VajraFS</strong> — Open-source file manager developed by <a href="${Distribution.PROJECT_URL}" target="_blank" style="color: #38bdf8; text-decoration: none; font-weight: 600;">PrabinCode</a></span>
                     <span style="margin: 0 8px;">•</span>
                     <span>100% Offline &amp; GPL-3.0</span>
                 </div>

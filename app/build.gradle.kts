@@ -15,8 +15,8 @@ android {
         applicationId = "com.prabincode.vajrafs"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "2.2.1"
+        versionCode = 14
+        versionName = "2.2.2"
         setProperty("archivesBaseName", "prabincode-vajrafs-v$versionName")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

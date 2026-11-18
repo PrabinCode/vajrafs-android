@@ -63,6 +63,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavBackStackEntry
+import com.prabincode.vajrafs.util.Distribution
 import com.prabincode.vajrafs.util.ExternalFileResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -149,9 +150,29 @@ fun AppNavGraph(
             return
         }
 
-        // 6. APK Files -> Package Installer
+        // 6. APK Files -> Package Installer (GitHub build only; the Play build cannot install apps)
         val apkExtensions = setOf("apk", "apks", "xapk")
         if (apkExtensions.contains(ext) || mime == "application/vnd.android.package-archive") {
+            if (!Distribution.CAN_INSTALL_APKS) {
+                // Play build: never hand APKs to the package installer. Offer a generic "Open with"
+                // as application/octet-stream, which installers don't register for, so the user can
+                // pick an APK analyzer, archive app, cloud uploader, etc.
+                try {
+                    val apkUri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                    val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/octet-stream")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(openIntent, "Open with"))
+                } catch (_: Exception) {
+                    Toast.makeText(context, "No app found to open this file", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
                     try {
