@@ -1,0 +1,4 @@
+VajraFS 2.2.2
+- Device & Network Abuse policy compliance update for Google Play distribution
+- Sideload APK installation isolated strictly to GitHub releases flavor
+- Removed REQUEST_INSTALL_PACKAGES permission from Google Play build

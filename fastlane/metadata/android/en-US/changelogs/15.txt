@@ -1,0 +1,3 @@
+VajraFS 2.2.3
+- Expanded device availability for tablets, desktop Android, ChromeOS, and Android XR
+- Explicitly marked Wi-Fi hardware requirement as optional
